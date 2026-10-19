@@ -1,0 +1,26 @@
+{% extends "base.html" %}{% block title %}Checkout · {{ cfg.business_name }}{% endblock %}{% block body %}
+<main class="wrap" style="padding-bottom:40px">
+  <div class="demo"><b>DEMO CHECKOUT</b> — this stands in for Stripe's secure payment page. No card is charged.</div>
+  <h2>Delivery details</h2>
+  <div class="panel" style="margin-top:0">
+    {% for i in pend['items'] %}<div class="row"><span>{{ i.qty }} × {{ i.name }}<span class="sub">{{ i.common_name }} — {{ contains(i.allergens) }}</span></span><span>{{ (i.qty*i.price_cents)|money }}</span></div>{% endfor %}
+    <div class="row"><span>Delivery {{ delivery_date }}</span><span class="free">FREE</span></div>
+    <div class="row"><span>Subtotal</span><span>{{ pend.subtotal|money }}</span></div>
+    <div class="row"><span>{{ tax_label }}</span><span>{{ pend.tax|money }}</span></div>
+    <div class="row t"><span>Total</span><span>{{ pend.total|money }}</span></div>
+  </div>
+  {% if errors %}<div class="msg bad">{% for e in errors %}{{ e }}<br>{% endfor %}</div>{% endif %}
+  <form method="post" class="panel">
+    <label>Full name</label><input name="name" value="{{ form.name }}" autocomplete="name" required>
+    <label>Email</label><input name="email" type="email" value="{{ form.email }}" autocomplete="email" required>
+    <label>Mobile phone</label><input name="phone" type="tel" value="{{ form.phone }}" autocomplete="tel" required>
+    <label>Street address</label><input name="street" value="{{ form.street }}" autocomplete="street-address" required>
+    <div class="two"><div><label>City</label><input name="city" value="{{ form.city }}" required></div><div><label>State</label><input name="state" value="{{ form.state }}"></div></div>
+    <label>ZIP</label><input name="zip" inputmode="numeric" maxlength="5" value="{{ form.zip }}" required>
+    <label>Delivery notes (optional)</label><textarea name="notes" placeholder="Gate code, leave at back door, etc.">{{ form.notes }}</textarea>
+    <p style="font-size:14px">🚚 Delivery: <b>{{ delivery_date }}</b> · free<br><span style="font-size:12px;color:var(--muted)">Order by {{ cutoff_label }} for next-day delivery ({{ days_label }}).</span></p>
+    {% include "_disclosure.html" %}
+    <button class="btn" type="submit">Place order · {{ pend.total|money }}</button>
+  </form>
+</main>
+{% endblock %}

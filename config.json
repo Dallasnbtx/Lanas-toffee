@@ -1,0 +1,141 @@
+{
+  "business_name": "Lana's Toffee Treats",
+  "tagline": "Small-batch toffee made in New Braunfels, TX",
+  "contact_phone": "830-832-8140",
+  "contact_email": "Lananbtx@gmail.com",
+  "currency": "usd",
+  "delivery_zips": [
+    "78130"
+  ],
+  "delivery_label": "Free next-day local delivery (Mon–Sat)",
+  "max_qty_per_item": 20,
+  "min_order_cents": 0,
+  "cottage_food_disclosure": "THIS PRODUCT WAS PRODUCED IN A PRIVATE RESIDENCE THAT IS NOT SUBJECT TO GOVERNMENTAL LICENSING OR INSPECTION.",
+  "products": [
+    {
+      "id": "classic",
+      "name": "Classic Butter Toffee",
+      "desc": "Buttery, crunchy English-style toffee with a milk chocolate top.",
+      "unit": "8 oz bag",
+      "price_cents": 1200,
+      "color": "#D08A3C",
+      "accent": "#7A4A1E",
+      "shape": "shards",
+      "common_name": "Butter Toffee with Milk Chocolate",
+      "allergens": [
+        "milk",
+        "soy"
+      ]
+    },
+    {
+      "id": "pecan",
+      "name": "Texas Pecan Toffee",
+      "desc": "Classic toffee finished with chopped Texas pecans.",
+      "unit": "8 oz bag",
+      "price_cents": 1400,
+      "color": "#B5651D",
+      "accent": "#5E3410",
+      "shape": "squares",
+      "common_name": "Pecan Butter Toffee",
+      "allergens": [
+        "milk",
+        "tree nuts (pecan)",
+        "soy"
+      ]
+    },
+    {
+      "id": "darkalmond",
+      "name": "Dark Chocolate Almond Toffee",
+      "desc": "Rich dark chocolate and toasted almonds over butter toffee.",
+      "unit": "8 oz bag",
+      "price_cents": 1400,
+      "color": "#5A3420",
+      "accent": "#2E180B",
+      "shape": "squares",
+      "common_name": "Dark Chocolate Almond Butter Toffee",
+      "allergens": [
+        "milk",
+        "tree nuts (almond)",
+        "soy"
+      ]
+    },
+    {
+      "id": "seasalt",
+      "name": "Sea Salt Toffee",
+      "desc": "Sweet-and-salty toffee with flaky sea salt.",
+      "unit": "8 oz bag",
+      "price_cents": 1300,
+      "color": "#E3A93B",
+      "accent": "#9C6512",
+      "shape": "shards",
+      "common_name": "Sea Salt Butter Toffee",
+      "allergens": [
+        "milk",
+        "soy"
+      ]
+    },
+    {
+      "id": "bites",
+      "name": "Toffee Bites",
+      "desc": "Bite-size toffee pieces — great for sharing or snacking.",
+      "unit": "6 oz box",
+      "price_cents": 900,
+      "color": "#C98B4B",
+      "accent": "#7A4A1E",
+      "shape": "circles",
+      "common_name": "Butter Toffee Pieces",
+      "allergens": [
+        "milk",
+        "soy"
+      ]
+    },
+    {
+      "id": "sampler",
+      "name": "Toffee Sampler Box",
+      "desc": "A little of every flavor — great as a gift.",
+      "unit": "12 pieces",
+      "price_cents": 2200,
+      "color": "#D9534F",
+      "accent": "#8E2B28",
+      "shape": "box",
+      "common_name": "Assorted Butter Toffee",
+      "allergens": [
+        "milk",
+        "tree nuts (pecan, almond)",
+        "soy"
+      ]
+    }
+  ],
+  "order_cutoff": "17:00",
+  "delivery_weekdays": [
+    "Mon",
+    "Tue",
+    "Wed",
+    "Thu",
+    "Fri",
+    "Sat"
+  ],
+  "timezone": "America/Chicago",
+  "operator_address": "",
+  "dshs_id": "",
+  "operator_placeholder": "Address/DSHS ID: provided on package label",
+  "delivery_note": "Delivered personally by Lana's Toffee Treats — New Braunfels 78130 only.",
+  "sales_tax": {
+    "enabled": true,
+    "rate_percent": 8.25,
+    "label": "Texas sales tax"
+  },
+  "allergens_confirmed": false,
+  "allergen_note": "SAMPLE allergen info — to be confirmed by Lana before selling.",
+  "major_allergens": [
+    "milk",
+    "eggs",
+    "wheat",
+    "soy",
+    "peanuts",
+    "tree nuts",
+    "fish",
+    "shellfish",
+    "sesame"
+  ]
+}

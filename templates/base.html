@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{% block title %}{{ cfg.business_name }}{% endblock %}</title><meta name="theme-color" content="#B5541C">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"></head><body>
+<header class="top"><div class="logo">{{ cfg.business_name }}</div><span class="badge">🚚 Free delivery</span></header>
+{% block body %}{% endblock %}
+</body></html>

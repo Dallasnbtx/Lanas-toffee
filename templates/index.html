@@ -1,0 +1,93 @@
+{% extends "base.html" %}{% block body %}
+<main class="wrap">
+  {% if mode == 'demo' %}<div class="demo"><b>DEMO MODE</b> — sample products &amp; prices, no real payment is taken.</div>{% endif %}
+  <section class="hero">
+    <h1>Enjoyed your sample? Get more delivered to your door.</h1>
+    <p>{{ cfg.tagline }}. <b>Free next-day delivery ({{ days_label }}). Order by {{ cutoff_label }}.</b></p>
+    <p style="margin:0 0 12px">Order now and we'll deliver <b>{{ delivery_date }}</b>.</p>
+    <div class="pills"><span class="pill">Free delivery</span><span class="pill">Order by {{ cutoff_label }}</span><span class="pill">Secure checkout</span></div>
+    <p style="margin:12px 0 0;font-size:13px">{{ cfg.delivery_note }}</p>
+  </section>
+
+  <h2>Pick your treats</h2>
+  {% include "_disclosure.html" %}
+  <div class="grid">
+  {% for p in cfg.products %}
+    <div class="card" data-id="{{ p.id }}" data-price="{{ p.price_cents }}" data-name="{{ p.name }}" data-contains="{{ contains(p.allergens) }}">
+      <div class="imgw"><img src="{{ url_for('static', filename='img/' ~ p.id ~ '.svg') }}" alt="{{ p.name }} (sample image)"><span class="sample-tag">SAMPLE</span></div>
+      <div class="b"><h3>{{ p.name }}</h3><div class="cname">{{ p.common_name }}</div><div class="d">{{ p.desc }}</div>
+        <div class="contains">{{ contains(p.allergens) }}</div>
+        <div class="price">{{ p.price_cents|money }} <span class="unit">/ {{ p.unit }}</span></div>
+        <div class="step"><button class="m" aria-label="Remove one">−</button><span class="q">0</span><button class="p" aria-label="Add one">+</button></div>
+      </div>
+    </div>
+  {% endfor %}
+  </div>
+
+  <section class="panel" id="cart">
+    <h2 style="margin-top:0">Your order</h2>
+    <div id="lines"><div class="row" style="color:var(--muted)">Your cart is empty — tap + to add treats.</div></div>
+    <div class="row"><span>Delivery: <b>{{ delivery_date }}</b></span><span class="free">FREE</span></div>
+    <div style="font-size:12px;color:var(--muted)">Orders placed by {{ cutoff_label }} arrive the next delivery day ({{ days_label }}; no Sunday delivery).</div>
+    <div class="row"><span>Subtotal</span><span id="subtotal">$0.00</span></div>
+    <div class="row"><span>{{ tax_label }}</span><span id="tax">$0.00</span></div>
+    <div class="row t"><span>Total</span><span id="total">$0.00</span></div>
+    <label for="zip">Delivery ZIP code</label>
+    <input id="zip" inputmode="numeric" maxlength="5" placeholder="e.g. 78130" autocomplete="postal-code">
+    <div id="zipmsg"></div>
+    <button class="btn" id="checkout" style="margin-top:14px" disabled>Checkout</button>
+    <div id="err"></div>
+  </section>
+  <p class="foot">{{ cfg.cottage_food_disclosure }}<br><a href="/food-safety">Food safety &amp; allergen info</a><br>Questions? <a href="tel:{{ cfg.contact_phone }}">{{ cfg.contact_phone }}</a> · <a href="mailto:{{ cfg.contact_email }}">{{ cfg.contact_email }}</a></p>
+</main>
+<div class="bar"><div class="in"><div class="sum"><span id="count">0 items</span><br><b id="bartotal">$0.00</b> incl. tax · free delivery</div><a class="btn" href="#cart" id="viewcart">View cart</a></div></div>
+<script>
+const SRC = {{ src|tojson }};
+const TAX_RATE = {{ tax_rate|tojson }};
+const cart = JSON.parse(localStorage.getItem('cart') || '{}');
+const fmt = c => '$' + (c/100).toFixed(2);
+let zipOk = false;
+function render(){
+  let total=0,count=0,html='';
+  document.querySelectorAll('.card').forEach(c=>{
+    const id=c.dataset.id,q=cart[id]||0,pr=+c.dataset.price;
+    c.querySelector('.q').textContent=q;
+    if(q){total+=q*pr;count+=q;html+=`<div class="row"><span>${q} × ${c.dataset.name}<span class="sub">${c.dataset.contains}</span></span><span>${fmt(q*pr)}</span></div>`}
+  });
+  document.getElementById('lines').innerHTML=html||'<div class="row" style="color:var(--muted)">Your cart is empty — tap + to add treats.</div>';
+  const tax=Math.round(total*TAX_RATE/100);
+  document.getElementById('subtotal').textContent=fmt(total);
+  document.getElementById('tax').textContent=fmt(tax);
+  document.getElementById('total').textContent=fmt(total+tax);
+  document.getElementById('bartotal').textContent=fmt(total+tax);
+  document.getElementById('count').textContent=count+(count==1?' item':' items');
+  document.getElementById('checkout').disabled=!(count&&zipOk);
+  localStorage.setItem('cart',JSON.stringify(cart));
+}
+document.querySelectorAll('.card').forEach(c=>{
+  const id=c.dataset.id;
+  c.querySelector('.p').onclick=()=>{cart[id]=Math.min((cart[id]||0)+1,{{ cfg.max_qty_per_item }});render()};
+  c.querySelector('.m').onclick=()=>{cart[id]=Math.max((cart[id]||0)-1,0);if(!cart[id])delete cart[id];render()};
+});
+const zipEl=document.getElementById('zip'),zipMsg=document.getElementById('zipmsg');
+async function checkZip(){
+  const z=zipEl.value.trim();zipOk=false;zipMsg.innerHTML='';
+  if(z.length===5){
+    const r=await fetch('/api/check-zip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({zip:z})}).then(r=>r.json());
+    zipOk=r.ok;zipMsg.innerHTML=r.ok?'<div class="msg ok">✓ Great news — we deliver to '+z+'!</div>':'<div class="msg bad">'+r.message+'</div>';
+    localStorage.setItem('zip',z);
+  }
+  render();
+}
+zipEl.addEventListener('input',checkZip);
+if(localStorage.getItem('zip')){zipEl.value=localStorage.getItem('zip');checkZip()}
+document.getElementById('checkout').onclick=async e=>{
+  e.target.disabled=true;e.target.textContent='One moment…';
+  const r=await fetch('/api/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:cart,zip:zipEl.value.trim(),src:SRC})});
+  const j=await r.json();
+  if(j.url){localStorage.removeItem('cart');location.href=j.url}
+  else{document.getElementById('err').innerHTML='<div class="msg bad">'+(j.error||'Something went wrong')+'</div>';e.target.textContent='Checkout';render()}
+};
+render();
+</script>
+{% endblock %}

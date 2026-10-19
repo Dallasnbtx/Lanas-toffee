@@ -1,0 +1,35 @@
+Subject: [TEST] New order #1 — $56.29 — deliver Tuesday, October 20 — Test Customer
+
+Lana's Toffee Treats — new order
+============================================
+Order #:        1
+Placed:         2026-10-19 14:19 CT
+DELIVER ON:     Tuesday, October 20
+Payment:        TEST — demo mode, no payment
+Flyer source:   flyer1
+
+CUSTOMER
+  Name:    Test Customer
+  Phone:   830-555-0100
+  Email:   test@example.com
+  Address: 123 Test St, New Braunfels, TX 78130
+  Notes:   TEST ORDER
+
+ITEMS
+  2 x Classic Butter Toffee (8 oz bag)         $12.00 ea     $24.00
+      Butter Toffee with Milk Chocolate — Contains: Milk, Soy
+  1 x Texas Pecan Toffee (8 oz bag)            $14.00 ea     $14.00
+      Pecan Butter Toffee — Contains: Milk, Tree Nuts (Pecan), Soy
+  1 x Dark Chocolate Almond Toffee (8 oz bag)  $14.00 ea     $14.00
+      Dark Chocolate Almond Butter Toffee — Contains: Milk, Tree Nuts (Almond), Soy
+
+  Subtotal                                                         $52.00
+  Texas sales tax (8.25%)                                           $4.29
+  Delivery                                                           FREE
+  TOTAL                                                            $56.29
+
+Admin:          http://localhost:5055/admin
+Package labels: http://localhost:5055/admin/orders/1/labels.pdf
+
+Label statement: THIS PRODUCT WAS PRODUCED IN A PRIVATE RESIDENCE THAT IS NOT SUBJECT TO GOVERNMENTAL LICENSING OR INSPECTION.
+Note: allergen info is SAMPLE data until confirmed in config.json.

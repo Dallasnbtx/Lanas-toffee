@@ -1,0 +1,20 @@
+{% extends "base.html" %}{% block title %}Thank you! · {{ cfg.business_name }}{% endblock %}{% block body %}
+<main class="wrap" style="padding-bottom:40px">
+  <section class="hero" style="text-align:center"><div style="font-size:48px">🧈</div>
+    <h1>Thank you{% if order %}, {{ order.customer_name.split(' ')[0] }}{% endif %}!</h1>
+    <p>{% if order %}Your treats are on the way — we'll deliver <b>{{ order.delivery_date }}</b>.{% else %}Your order is being confirmed. You'll get an email receipt shortly.{% endif %}</p></section>
+  {% if order %}
+  <div class="panel">
+    <h2 style="margin-top:0">Order #{{ order.id }}</h2>
+    {% for i in order['items'] %}<div class="row"><span>{{ i.qty }} × {{ i.name }}<span class="sub">{{ i.common_name }} — {{ contains(i.allergens) }}</span></span><span>{{ (i.qty*i.price_cents)|money }}</span></div>{% endfor %}
+    <div class="row"><span>Delivery {{ order.delivery_date }}</span><span class="free">FREE</span></div>
+    <div class="row"><span>Subtotal</span><span>{{ order.subtotal_cents|money }}</span></div>
+    <div class="row"><span>{{ tax_label }}</span><span>{{ order.tax_cents|money }}</span></div>
+    <div class="row t"><span>Total</span><span>{{ order.total_cents|money }}</span></div>
+    <div class="row" style="font-size:13px;color:var(--muted)"><span>Payment</span><span>{{ order.payment_status }}</span></div>
+    <p style="font-size:14px;margin-bottom:0"><b>Delivering to:</b> {{ order.customer_name }}<br>{{ order.address }}<br>{{ order.phone }}{% if order.notes %}<br><i>Notes: {{ order.notes }}</i>{% endif %}</p>
+  </div>{% endif %}
+  {% include "_disclosure.html" %}
+  <p class="foot">Questions about your order? Call or text <a href="tel:{{ cfg.contact_phone }}">{{ cfg.contact_phone }}</a> · <a href="mailto:{{ cfg.contact_email }}">{{ cfg.contact_email }}</a></p>
+  <a class="btn" href="/" style="margin-top:12px;background:#fff;color:var(--brand);border:2px solid var(--brand)">Back to the shop</a>
+</main>{% endblock %}

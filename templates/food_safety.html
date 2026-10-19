@@ -1,0 +1,22 @@
+{% extends "base.html" %}{% block title %}Food safety & allergen info · {{ cfg.business_name }}{% endblock %}{% block body %}
+<main class="wrap fs" style="padding-bottom:40px">
+  <h2>Food safety &amp; allergen info</h2>
+  {% include "_disclosure.html" %}
+  <div class="panel">
+    <h3 style="margin-top:0">About our kitchen</h3>
+    <p>{{ cfg.business_name }} is a Texas cottage food operation. Our toffee is made in small batches in a home kitchen in
+       New Braunfels, TX, and delivered personally by us — New Braunfels ZIP 78130 only.</p>
+    <p>Every package carries a label with our name, {% if operator_set %}{{ operator_line }}{% else %}our address or DSHS ID{% endif %},
+       the product's common name, its allergens, and the statement above.</p>
+    <h3>Allergens by product</h3>
+    {% if not cfg.allergens_confirmed %}<p class="tbc" style="color:#8a5a00">⚠ {{ cfg.allergen_note }}</p>{% endif %}
+    <ul>{% for p in cfg.products %}<li><b>{{ p.name }}</b> ({{ p.common_name }}): {{ contains(p.allergens) }}</li>{% endfor %}</ul>
+    <p style="font-size:13px">We check for the 9 major food allergens: {{ cfg.major_allergens | join(", ") }}.
+       All products are made in the same kitchen, so cross-contact with milk, soy and tree nuts is possible <i>[placeholder — Lana to confirm]</i>.
+       If you have a severe allergy, please contact us before ordering.</p>
+    <h3>Storing your toffee</h3>
+    <p>Keep sealed in a cool, dry place away from heat and direct sun. Best enjoyed within a few weeks. <i>[placeholder — Lana to confirm shelf life]</i></p>
+    <p>Questions? <a href="tel:{{ cfg.contact_phone }}">{{ cfg.contact_phone }}</a> · <a href="mailto:{{ cfg.contact_email }}">{{ cfg.contact_email }}</a></p>
+  </div>
+  <a class="btn" href="/">Back to the shop</a>
+</main>{% endblock %}

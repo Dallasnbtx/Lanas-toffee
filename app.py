@@ -1,0 +1,457 @@
+import os, json, sqlite3, secrets, csv, io, logging, datetime, threading
+from functools import wraps
+from zoneinfo import ZoneInfo
+from flask import (Flask, render_template, request, jsonify, redirect, url_for,
+                   abort, Response, g)
+import notify, delivery, labeling
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+BASE_DIR0 = os.path.dirname(os.path.abspath(__file__))
+
+
+def _load_dotenv(path):
+    """Minimal .env loader (KEY=VALUE lines). Real environment variables win."""
+    if os.path.exists(path):
+        for line in open(path):
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.split(" #")[0].strip().strip('"').strip("'"))
+
+
+_load_dotenv(os.path.join(BASE_DIR0, ".env"))
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_PATH = os.environ.get("CONFIG_PATH", os.path.join(BASE_DIR, "config.json"))
+DB_PATH = os.environ.get("DB_PATH", os.path.join(BASE_DIR, "data", "orders.db"))
+PORT = int(os.environ.get("PORT", "5055"))
+BASE_URL = os.environ.get("BASE_URL", f"http://localhost:{PORT}").rstrip("/")
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "").strip()
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
+STRIPE_TAX_RATE_ID = os.environ.get("STRIPE_TAX_RATE_ID", "").strip()  # optional txr_... from Stripe Dashboard
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "changeme")
+TZ = ZoneInfo(os.environ.get("TZ_NAME", "America/Chicago"))
+MODE = "stripe" if STRIPE_SECRET_KEY else "demo"
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("candy")
+
+if MODE == "stripe":
+    import stripe
+    stripe.api_key = STRIPE_SECRET_KEY
+
+app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+if ADMIN_PASSWORD == "changeme":
+    log.warning("ADMIN_PASSWORD is the default 'changeme' - set it in .env")
+app.secret_key = os.environ.get("FLASK_SECRET", secrets.token_hex(16))
+STATUSES = ["new", "out for delivery", "delivered", "cancelled"]
+PENDING = {}  # demo-mode carts awaiting the mock checkout form
+_lock = threading.Lock()
+
+
+def load_config():
+    with open(CONFIG_PATH) as f:
+        return json.load(f)
+
+
+def products_by_id(cfg):
+    return {p["id"]: p for p in cfg["products"]}
+
+
+# ---------- storage ----------
+def db():
+    if "db" not in g:
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+        g.db = sqlite3.connect(DB_PATH)
+        g.db.row_factory = sqlite3.Row
+    return g.db
+
+
+@app.teardown_appcontext
+def _close(_):
+    d = g.pop("db", None)
+    if d:
+        d.close()
+
+
+def init_db():
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    c = sqlite3.connect(DB_PATH)
+    c.execute("""CREATE TABLE IF NOT EXISTS orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT, mode TEXT, stripe_session_id TEXT UNIQUE,
+        payment_status TEXT, status TEXT DEFAULT 'new',
+        customer_name TEXT, email TEXT, phone TEXT, address TEXT, zip TEXT,
+        notes TEXT, src TEXT, items_json TEXT, total_cents INTEGER,
+        delivery_date TEXT, in_area INTEGER DEFAULT 1)""")
+    cols = {r[1] for r in c.execute("PRAGMA table_info(orders)")}
+    for col, typ in [("delivery_date_iso", "TEXT"), ("subtotal_cents", "INTEGER"), ("tax_cents", "INTEGER")]:
+        if col not in cols:  # migration for older DBs
+            c.execute(f"ALTER TABLE orders ADD COLUMN {col} {typ}")
+    c.commit()
+    c.close()
+
+
+def row_to_order(r):
+    o = dict(r)
+    o["items"] = json.loads(o.pop("items_json") or "[]")
+    return o
+
+
+def save_order(**o):
+    items = o.pop("items")
+    o["items_json"] = json.dumps(items)
+    o.setdefault("created_at", datetime.datetime.now(TZ).strftime("%Y-%m-%d %H:%M"))
+    o.setdefault("status", "new")
+    with _lock:
+        d = db()
+        if o.get("stripe_session_id"):
+            ex = d.execute("SELECT id FROM orders WHERE stripe_session_id=?", (o["stripe_session_id"],)).fetchone()
+            if ex:  # idempotent: webhook + success page may both record
+                return ex["id"], False
+        cols = ",".join(o.keys())
+        cur = d.execute(f"INSERT INTO orders ({cols}) VALUES ({','.join('?'*len(o))})", tuple(o.values()))
+        d.commit()
+        oid = cur.lastrowid
+    order = row_to_order(db().execute("SELECT * FROM orders WHERE id=?", (oid,)).fetchone())
+    notify.send_alert(order)
+    return oid, True
+
+
+# ---------- helpers ----------
+def delivery_info(now=None):
+    """Delivery date for an order placed now: (pretty string, ISO date)."""
+    d = delivery.next_delivery_date(load_config(), now)
+    return delivery.pretty(d), d.isoformat()
+
+
+def delivery_date():
+    return delivery_info()[0]
+
+
+@app.context_processor
+def _delivery_ctx():
+    cfg = load_config()
+    return {"cutoff_label": delivery.cutoff_label(cfg), "days_label": delivery.days_label(cfg),
+            "contains": labeling.contains_text, "operator_line": labeling.operator_line(cfg),
+            "operator_set": labeling.operator_is_set(cfg), "tax_label": labeling.tax_label(cfg),
+            "tax_rate": float(labeling.tax_rate(cfg))}
+
+
+def zip_ok(z):
+    z = (z or "").strip()[:5]
+    return z in load_config()["delivery_zips"]
+
+
+def build_items(raw):
+    """Price everything server-side from config; never trust client prices."""
+    cfg = load_config()
+    pmap = products_by_id(cfg)
+    maxq = cfg.get("max_qty_per_item", 20)
+    items = []
+    for pid, qty in (raw or {}).items():
+        try:
+            qty = int(qty)
+        except (TypeError, ValueError):
+            continue
+        if pid in pmap and 0 < qty <= maxq:
+            p = pmap[pid]
+            items.append({"id": pid, "name": p["name"], "common_name": p.get("common_name", p["name"]),
+                          "allergens": p.get("allergens", []), "unit": p["unit"], "qty": qty,
+                          "price_cents": p["price_cents"]})
+    return items, sum(i["qty"] * i["price_cents"] for i in items)
+
+
+def clean_src(s):
+    return "".join(ch for ch in (s or "") if ch.isalnum() or ch in "-_")[:40]
+
+
+# ---------- public pages ----------
+@app.route("/")
+def index():
+    cfg = load_config()
+    return render_template("index.html", cfg=cfg, mode=MODE, src=clean_src(request.args.get("src")),
+                           delivery_date=delivery_date())
+
+
+def zip_sorry():
+    z = load_config()["delivery_zips"]
+    return (f"Sorry — right now we only deliver to ZIP{'s' if len(z) > 1 else ''} {', '.join(z)} "
+            "(New Braunfels). We're hoping to expand soon!")
+
+
+@app.post("/api/check-zip")
+def api_check_zip():
+    z = (request.get_json(silent=True) or {}).get("zip", "")
+    ok = zip_ok(z)
+    return jsonify(ok=ok, message=None if ok else
+                   zip_sorry())
+
+
+@app.post("/api/checkout")
+def api_checkout():
+    data = request.get_json(silent=True) or {}
+    cfg = load_config()
+    items, subtotal = build_items(data.get("items"))
+    tax = labeling.compute_tax(cfg, subtotal)
+    total = subtotal + tax
+    if not items:
+        return jsonify(error="Your cart is empty."), 400
+    if subtotal < cfg.get("min_order_cents", 0):
+        return jsonify(error=f"Minimum order is ${cfg['min_order_cents']/100:.2f}."), 400
+    z = (data.get("zip") or "").strip()[:5]
+    if not zip_ok(z):
+        return jsonify(error="That ZIP is outside our delivery area."), 400
+    src = clean_src(data.get("src"))
+
+    if MODE == "demo":
+        token = secrets.token_urlsafe(10)
+        PENDING[token] = {"items": items, "subtotal": subtotal, "tax": tax, "total": total, "zip": z, "src": src}
+        return jsonify(url=url_for("demo_checkout", token=token), delivery_date=delivery_date())
+
+    ddate, diso = delivery_info()
+
+    line_items = []
+    for i in items:
+        li = {"quantity": i["qty"], "price_data": {
+            "currency": cfg["currency"], "unit_amount": i["price_cents"],
+            "product_data": {"name": f"{i['name']} ({i['unit']})",
+                             "description": f"{i['common_name']}. {labeling.contains_text(i['allergens'])}"}}}
+        if STRIPE_TAX_RATE_ID:
+            li["tax_rates"] = [STRIPE_TAX_RATE_ID]  # Stripe computes the tax per line
+        line_items.append(li)
+    if not STRIPE_TAX_RATE_ID and tax:
+        line_items.append({"quantity": 1, "price_data": {"currency": cfg["currency"], "unit_amount": tax,
+                                                         "product_data": {"name": labeling.tax_label(cfg)}}})
+    session = stripe.checkout.Session.create(
+        mode="payment",
+        line_items=line_items,
+        shipping_address_collection={"allowed_countries": ["US"]},
+        shipping_options=[{"shipping_rate_data": {
+            "type": "fixed_amount", "display_name": f"{cfg['delivery_label']} - {ddate}",
+            "fixed_amount": {"amount": 0, "currency": cfg["currency"]},
+            "delivery_estimate": {"minimum": {"unit": "business_day", "value": 1},
+                                  "maximum": {"unit": "business_day", "value": 1}}}}],
+        phone_number_collection={"enabled": True},
+        custom_text={"submit": {"message": cfg["cottage_food_disclosure"] + " " + cfg.get("delivery_note", "")}},
+        custom_fields=[{"key": "delivery_notes", "label": {"type": "custom", "custom": "Delivery notes (gate code, etc.)"},
+                        "type": "text", "optional": True}],
+        metadata={"src": src, "zip_checked": z, "delivery_date_iso": diso, "items": json.dumps({i["id"]: i["qty"] for i in items})},
+        success_url=f"{BASE_URL}/success?session_id={{CHECKOUT_SESSION_ID}}",
+        cancel_url=f"{BASE_URL}/?src={src}",
+    )
+    return jsonify(url=session.url)
+
+
+@app.route("/demo-checkout/<token>", methods=["GET", "POST"])
+def demo_checkout(token):
+    if MODE != "demo":
+        abort(404)
+    pend = PENDING.get(token)
+    if not pend:
+        return redirect(url_for("index"))
+    cfg = load_config()
+    errors, form = [], {}
+    if request.method == "POST":
+        form = {k: (request.form.get(k) or "").strip() for k in
+                ["name", "email", "phone", "street", "city", "state", "zip", "notes"]}
+        for k, label in [("name", "Name"), ("email", "Email"), ("phone", "Phone"),
+                         ("street", "Street address"), ("city", "City"), ("zip", "ZIP")]:
+            if not form[k]:
+                errors.append(f"{label} is required.")
+        if form["email"] and "@" not in form["email"]:
+            errors.append("Please enter a valid email.")
+        if form["phone"] and sum(ch.isdigit() for ch in form["phone"]) < 10:
+            errors.append("Please enter a 10-digit phone number.")
+        if form["zip"] and not zip_ok(form["zip"]):
+            errors.append(zip_sorry())
+        if not errors:
+            ddate, diso = delivery_info()  # computed at the moment the order is placed
+            addr = f"{form['street']}, {form['city']}, {form['state'] or 'TX'} {form['zip'][:5]}"
+            oid, _ = save_order(mode="demo", payment_status="TEST — demo mode, no payment", customer_name=form["name"],
+                                email=form["email"], phone=form["phone"], address=addr, zip=form["zip"][:5],
+                                notes=form["notes"], src=pend["src"], items=pend["items"],
+                                subtotal_cents=pend["subtotal"], tax_cents=pend["tax"],
+                                total_cents=pend["total"], delivery_date=ddate, delivery_date_iso=diso)
+            PENDING.pop(token, None)
+            return redirect(url_for("success", order=oid))
+    form.setdefault("zip", pend["zip"])
+    form.setdefault("city", "New Braunfels")
+    form.setdefault("state", "TX")
+    return render_template("demo_checkout.html", cfg=cfg, pend=pend, errors=errors, form=form,
+                           delivery_date=delivery_date())
+
+
+def parse_stripe_session(s):
+    """Turn a Checkout Session (plain dict) into our order fields."""
+    cd = s.get("customer_details") or {}
+    ship = (s.get("collected_information") or {}).get("shipping_details") or s.get("shipping_details") or {}
+    a = ship.get("address") or cd.get("address") or {}
+    addr = ", ".join(x for x in [a.get("line1"), a.get("line2"), a.get("city"),
+                                 f"{a.get('state') or ''} {a.get('postal_code') or ''}".strip()] if x)
+    md = s.get("metadata") or {}
+    items, subtotal = build_items(json.loads(md.get("items") or "{}"))
+    total = s.get("amount_total") or 0
+    tax = ((s.get("total_details") or {}).get("amount_tax") or 0) or max(total - subtotal, 0)
+    notes = ""
+    for f in (s.get("custom_fields") or []):
+        if f.get("key") == "delivery_notes":
+            notes = (f.get("text") or {}).get("value") or ""
+    z = (a.get("postal_code") or "")[:5]
+    if md.get("delivery_date_iso"):  # the date the customer was shown at checkout
+        d = datetime.date.fromisoformat(md["delivery_date_iso"])
+        ddate, diso = delivery.pretty(d), d.isoformat()
+    else:
+        created = datetime.datetime.fromtimestamp(s.get("created") or datetime.datetime.now().timestamp(), TZ)
+        ddate, diso = delivery_info(created)
+    return dict(mode="stripe", stripe_session_id=s["id"], payment_status="paid",
+                customer_name=ship.get("name") or cd.get("name") or "", email=cd.get("email") or "",
+                phone=cd.get("phone") or "", address=addr, zip=z, notes=notes, src=md.get("src", ""),
+                items=items, subtotal_cents=subtotal, tax_cents=tax, total_cents=total, delivery_date=ddate, delivery_date_iso=diso,
+                in_area=1 if zip_ok(z) else 0)
+
+
+def record_stripe_session(session_id):
+    s = stripe.checkout.Session.retrieve(session_id).to_dict()
+    if s.get("payment_status") != "paid":
+        return None
+    oid, _ = save_order(**parse_stripe_session(s))
+    return oid
+
+
+@app.post("/webhook/stripe")
+def stripe_webhook():
+    if MODE != "stripe" or not STRIPE_WEBHOOK_SECRET:
+        return jsonify(error="webhook not configured"), 400
+    try:
+        event = stripe.Webhook.construct_event(request.get_data(), request.headers.get("Stripe-Signature", ""),
+                                               STRIPE_WEBHOOK_SECRET)
+    except Exception as e:
+        log.warning("Bad webhook signature: %s", e)
+        return jsonify(error="invalid signature"), 400
+    if event["type"] in ("checkout.session.completed", "checkout.session.async_payment_succeeded"):
+        record_stripe_session(event["data"]["object"]["id"])
+    return jsonify(received=True)
+
+
+@app.route("/success")
+def success():
+    cfg = load_config()
+    order = None
+    if request.args.get("order"):
+        r = db().execute("SELECT * FROM orders WHERE id=? AND mode='demo'", (request.args["order"],)).fetchone()
+        order = row_to_order(r) if r else None
+    elif request.args.get("session_id") and MODE == "stripe":
+        sid = request.args["session_id"]
+        r = db().execute("SELECT * FROM orders WHERE stripe_session_id=?", (sid,)).fetchone()
+        if not r:
+            try:
+                record_stripe_session(sid)  # webhook may not have arrived yet
+            except Exception as e:
+                log.warning("Could not fetch session: %s", e)
+            r = db().execute("SELECT * FROM orders WHERE stripe_session_id=?", (sid,)).fetchone()
+        order = row_to_order(r) if r else None
+    return render_template("success.html", cfg=cfg, order=order)
+
+
+# ---------- admin ----------
+def require_admin(fn):
+    @wraps(fn)
+    def wrapper(*a, **kw):
+        auth = request.authorization
+        if not auth or not secrets.compare_digest(auth.password or "", ADMIN_PASSWORD):
+            return Response("Login required", 401, {"WWW-Authenticate": 'Basic realm="Orders"'})
+        return fn(*a, **kw)
+    return wrapper
+
+
+@app.route("/admin")
+@require_admin
+def admin():
+    rows = [row_to_order(r) for r in db().execute("SELECT * FROM orders ORDER BY id DESC").fetchall()]
+    by_day = {}
+    for o in rows:
+        if o["status"] not in ("delivered", "cancelled"):
+            by_day.setdefault((o.get("delivery_date_iso") or "", o["delivery_date"]), []).append(o["id"])
+    by_src = {}
+    for o in rows:
+        k = o["src"] or "(none)"
+        by_src.setdefault(k, [0, 0])
+        by_src[k][0] += 1
+        by_src[k][1] += o["total_cents"] or 0
+    return render_template("admin.html", cfg=load_config(), orders=rows, statuses=STATUSES, mode=MODE,
+                           by_src=by_src, by_day=sorted(by_day.items()))
+
+
+@app.post("/admin/orders/<int:oid>/status")
+@require_admin
+def admin_status(oid):
+    st = request.form.get("status")
+    if st in STATUSES:
+        d = db()
+        d.execute("UPDATE orders SET status=? WHERE id=?", (st, oid))
+        d.commit()
+    return redirect(url_for("admin"))
+
+
+@app.route("/admin/orders.csv")
+@require_admin
+def admin_csv():
+    rows = [row_to_order(r) for r in db().execute("SELECT * FROM orders ORDER BY id").fetchall()]
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["id", "created_at", "status", "payment_status", "mode", "name", "phone", "email", "address",
+                "zip", "in_area", "notes", "items", "allergens", "subtotal", "sales_tax", "total", "delivery_date", "delivery_date_iso", "src",
+                "stripe_session_id"])
+    for o in rows:
+        w.writerow([o["id"], o["created_at"], o["status"], o["payment_status"], o["mode"], o["customer_name"],
+                    o["phone"], o["email"], o["address"], o["zip"], o["in_area"], o["notes"],
+                    "; ".join(f"{i['qty']}x {i['name']}" for i in o["items"]),
+                    "; ".join(f"{i['name']}: {', '.join(i.get('allergens', [])) or 'none'}" for i in o["items"]),
+                    f"{(o['subtotal_cents'] or 0)/100:.2f}", f"{(o['tax_cents'] or 0)/100:.2f}",
+                    f"{(o['total_cents'] or 0)/100:.2f}", o["delivery_date"], o["delivery_date_iso"], o["src"], o["stripe_session_id"]])
+    return Response(buf.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=orders.csv"})
+
+
+@app.route("/admin/orders/<int:oid>/labels.pdf")
+@require_admin
+def admin_labels(oid):
+    """Printable package labels for an order: one label per package. ?format=single for one 3x2in label per page."""
+    r = db().execute("SELECT * FROM orders WHERE id=?", (oid,)).fetchone()
+    if not r:
+        abort(404)
+    cfg = load_config()
+    pmap = products_by_id(cfg)
+    entries = []
+    for i in row_to_order(r)["items"]:
+        p = dict(pmap.get(i["id"], {}), **{k: i[k] for k in ("name", "unit") if k in i})
+        p.setdefault("common_name", i.get("common_name", i["name"]))
+        p.setdefault("allergens", i.get("allergens", []))
+        entries += [p] * i["qty"]
+    pdf = labeling.labels_pdf(cfg, entries, sheet=request.args.get("format") != "single", order_id=oid)
+    return Response(pdf, mimetype="application/pdf",
+                    headers={"Content-Disposition": f"inline; filename=order-{oid}-labels.pdf"})
+
+
+@app.route("/food-safety")
+def food_safety():
+    return render_template("food_safety.html", cfg=load_config())
+
+
+@app.route("/healthz")
+def healthz():
+    return jsonify(ok=True, mode=MODE, next_delivery=delivery_date())
+
+
+@app.template_filter("money")
+def money(c):
+    return f"${(c or 0)/100:.2f}"
+
+
+init_db()
+
+if __name__ == "__main__":
+    log.info("Starting %s in %s mode on port %s", load_config()["business_name"], MODE.upper(), PORT)
+    app.run(host="0.0.0.0", port=PORT, debug=False)
