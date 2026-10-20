@@ -7,9 +7,10 @@
   <div class="orn" aria-hidden="true"><span></span><i></i><span></span></div>
   <div class="kicker">small-batch &nbsp;·&nbsp; handmade in New Braunfels</div></header>
 {% block body %}{% endblock %}
-<div class="bezel" id="bezel" aria-hidden="true"><div class="bz-glow"></div><div class="bz-boost"></div><div class="bz-ring"><div class="bz-sweep"></div></div>
-  <i class="sp s1"></i><i class="sp s2"></i><i class="sp s3"></i><i class="sp s4"></i><i class="sp s5"></i><i class="sp s6"></i><i class="sp s7"></i></div>
-<script>/* bezel: brighten very slightly while the shopper interacts */
-(function(){var b=document.getElementById('bezel'),t;document.addEventListener('pointerdown',function(e){
-if(!e.target.closest('button,.btn,summary,input,textarea'))return;b.classList.add('lit');clearTimeout(t);t=setTimeout(function(){b.classList.remove('lit')},900)},{passive:true})})();</script>
+<div class="bezel" id="bezel" aria-hidden="true"><div class="bz-glow"></div><div class="bz-boost"></div>
+  <svg class="bz-trails" id="bz-trails" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="bzg" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#FBEBB5"/><stop offset=".5" stop-color="#E7C27A"/><stop offset="1" stop-color="#F3D58E"/></linearGradient></defs>
+    <rect class="tl t1"/><rect class="tl t2"/><rect class="tl t3"/><rect class="tl t4"/></svg>
+  <i class="sp s1"></i><i class="sp s2"></i><i class="sp s3"></i><i class="sp s4"></i><i class="sp s5"></i><i class="sp s6"></i><i class="sp s7"></i><i class="sp s8"></i><i class="sp s9"></i><i class="sp s10"></i></div>
+<script src="{{ url_for('static', filename='bezel.js') }}" defer></script>
 </body></html>

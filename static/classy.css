@@ -183,13 +183,24 @@ details li{padding:6px 0}details li span{font-size:12px;color:var(--muted)}
   opacity:.45;animation:bz-breathe 8s ease-in-out infinite;will-change:opacity}
 .bz-boost{border:1px solid rgba(243,213,142,.55);box-shadow:inset 0 0 22px rgba(231,190,110,.22);opacity:0;transition:opacity .6s ease}
 .bezel.lit .bz-boost{opacity:.55;transition-duration:.15s}
-/* shimmer: a soft bright arc travelling round the 1.5px ring */
-.bz-ring{overflow:hidden;padding:1.5px;
-  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;
-          mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0)}
-.bz-sweep{position:absolute;left:50%;top:50%;width:250vmax;height:250vmax;margin:-125vmax 0 0 -125vmax;
-  background:conic-gradient(from 0deg,transparent 0deg,rgba(255,236,180,0) 300deg,rgba(255,236,180,.75) 340deg,rgba(255,248,220,.95) 352deg,transparent 360deg);
-  opacity:.55;animation:bz-spin 14s linear infinite;will-change:transform}
+/* two chasers, exactly half a lap apart: one SVG rounded-rect stroke whose dash pattern repeats twice per lap.
+   Four stacked dash lengths share the same head point, giving a soft tapered tail. Geometry + motion in static/bezel.js */
+.bz-trails{position:absolute;inset:0;width:100%;height:100%;overflow:visible;opacity:.6;transition:opacity .6s ease}
+.bezel.lit .bz-trails{opacity:.75;transition-duration:.15s}
+.tl{fill:none;stroke:url(#bzg);stroke-linecap:round}
+.t1{stroke-width:1px;opacity:.10}.t2{stroke-width:1.2px;opacity:.18}.t3{stroke-width:1.5px;opacity:.34}
+.t4{stroke-width:1.9px;opacity:.85;stroke:#FFF4D6}
+/* head glow + glints that ride the chasers (moved along the same path with offset-path) */
+.rider{position:absolute;left:0;top:0;width:9px;height:9px;offset-anchor:50% 50%;offset-rotate:0deg;will-change:offset-distance}
+.rider.head{width:12px;height:12px}
+.rider.head::before{content:"";position:absolute;inset:0;border-radius:50%;
+  background:radial-gradient(closest-side,rgba(255,240,200,.55),rgba(231,190,110,.18) 60%,transparent)}
+.rider .gl{position:absolute;inset:0;opacity:0;transform:scale(.2);animation:bz-glint 1.9s ease-in-out infinite;will-change:transform,opacity}
+.rider .gl::before,.rider .gl::after{content:"";position:absolute;left:50%;top:50%;border-radius:50%;
+  background:radial-gradient(closest-side,rgba(255,246,214,.95),rgba(243,213,142,.5) 55%,transparent)}
+.rider .gl::before{width:9px;height:1.6px;margin:-.8px 0 0 -4.5px}
+.rider .gl::after{width:1.6px;height:9px;margin:-4.5px 0 0 -.8px}
+@keyframes bz-glint{0%,55%,100%{opacity:0;transform:scale(.2) rotate(0deg)}70%{opacity:.6;transform:scale(.85) rotate(45deg)}85%{opacity:0;transform:scale(.3) rotate(90deg)}}
 /* sparkles: tiny four-point glints that wink along the edge now and then */
 .sp{position:absolute;width:9px;height:9px;margin:-4.5px 0 0 -4.5px;opacity:0;transform:scale(.2) rotate(0deg);
   animation:bz-twinkle 9s ease-in-out infinite;will-change:transform,opacity}
@@ -197,18 +208,20 @@ details li{padding:6px 0}details li span{font-size:12px;color:var(--muted)}
   background:radial-gradient(closest-side,rgba(255,246,214,.95),rgba(243,213,142,.5) 55%,transparent)}
 .sp::before{width:9px;height:1.6px;margin:-.8px 0 0 -4.5px}
 .sp::after{width:1.6px;height:9px;margin:-4.5px 0 0 -.8px}
-.s1{left:18%;top:0;animation-delay:-1.2s}
-.s2{left:100%;top:22%;animation-duration:11s;animation-delay:-6.5s}
-.s3{left:72%;top:100%;animation-duration:10s;animation-delay:-3.8s}
-.s4{left:0;top:63%;animation-duration:12s;animation-delay:-9.2s}
-.s5{left:84%;top:0;animation-duration:13s;animation-delay:-4.6s}
-.s6{left:100%;top:78%;animation-duration:9.5s;animation-delay:-8.4s}
-.s7{left:0;top:14%;animation-duration:10.5s;animation-delay:-2.4s}
+.s1{left:18%;top:0;animation-duration:6s;animation-delay:-1.2s}
+.s2{left:100%;top:22%;animation-duration:7s;animation-delay:-4.5s}
+.s3{left:72%;top:100%;animation-duration:6.5s;animation-delay:-2.8s}
+.s4{left:0;top:63%;animation-duration:7.5s;animation-delay:-6.2s}
+.s5{left:84%;top:0;animation-duration:8s;animation-delay:-3.6s}
+.s6{left:100%;top:78%;animation-duration:6.2s;animation-delay:-5.4s}
+.s7{left:0;top:14%;animation-duration:7.2s;animation-delay:-0.4s}
+.s8{left:40%;top:100%;animation-duration:6.8s;animation-delay:-3.1s}
+.s9{left:100%;top:50%;animation-duration:7.8s;animation-delay:-7.0s}
+.s10{left:0;top:88%;animation-duration:6.6s;animation-delay:-1.9s}
 @keyframes bz-breathe{0%,100%{opacity:.38}50%{opacity:.85}}
-@keyframes bz-spin{to{transform:rotate(360deg)}}
 @keyframes bz-twinkle{0%,78%,100%{opacity:0;transform:scale(.2) rotate(0deg)}
   84%{opacity:.75;transform:scale(1) rotate(45deg)}90%{opacity:0;transform:scale(.3) rotate(90deg)}}
 @media (prefers-reduced-motion:reduce){
-  .bz-glow{animation:none;opacity:.6}.bz-ring,.sp{display:none}.bz-boost{transition:none}
+  .bz-glow{animation:none;opacity:.6}.bz-trails,.rider,.sp{display:none}.bz-boost,.bz-trails{transition:none}
 }
 @media (min-width:760px){.bezel{--inset:10px;--r:20px}}
