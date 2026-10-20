@@ -1,0 +1,15 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{% block title %}{{ cfg.business_name }}{% endblock %}</title><meta name="theme-color" content="#1A0E07">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400;1,500&family=DM+Serif+Display:ital@0;1&family=Great+Vibes&family=Lato:wght@300;400;700&display=swap">
+<link rel="stylesheet" href="{{ url_for('static', filename='classy.css') }}"></head><body class="{% block bodyclass %}{% endblock %}">
+<header class="mast"><a href="/" class="brand">{{ cfg.business_name }}</a>
+  <div class="orn" aria-hidden="true"><span></span><i></i><span></span></div>
+  <div class="kicker">small-batch &nbsp;·&nbsp; handmade in New Braunfels</div></header>
+{% block body %}{% endblock %}
+<div class="bezel" id="bezel" aria-hidden="true"><div class="bz-glow"></div><div class="bz-boost"></div><div class="bz-ring"><div class="bz-sweep"></div></div>
+  <i class="sp s1"></i><i class="sp s2"></i><i class="sp s3"></i><i class="sp s4"></i><i class="sp s5"></i><i class="sp s6"></i><i class="sp s7"></i></div>
+<script>/* bezel: brighten very slightly while the shopper interacts */
+(function(){var b=document.getElementById('bezel'),t;document.addEventListener('pointerdown',function(e){
+if(!e.target.closest('button,.btn,summary,input,textarea'))return;b.classList.add('lit');clearTimeout(t);t=setTimeout(function(){b.classList.remove('lit')},900)},{passive:true})})();</script>
+</body></html>

@@ -1,66 +1,93 @@
-{% extends "base.html" %}{% block body %}
+{% extends "base_classy.html" %}{% block body %}
 <main class="wrap">
-  {% if mode == 'demo' %}<div class="demo"><b>DEMO MODE</b> — sample products &amp; prices, no real payment is taken.</div>{% endif %}
+  {% if mode == 'demo' %}<div class="demo">Preview · sample prices, no payment taken</div>{% endif %}
+
   <section class="hero">
-    <h1>Enjoyed your sample? Get more delivered to your door.</h1>
-    <p>{{ cfg.tagline }}. <b>Free next-day delivery ({{ days_label }}). Order by {{ cutoff_label }}.</b></p>
-    <p style="margin:0 0 12px">Order now and we'll deliver <b>{{ delivery_date }}</b>.</p>
-    <div class="pills"><span class="pill">Free delivery</span><span class="pill">Order by {{ cutoff_label }}</span><span class="pill">Secure checkout</span></div>
-    <p style="margin:12px 0 0;font-size:13px">{{ cfg.delivery_note }}</p>
+    <p class="pre">You deserve a little</p>
+    <h1 class="gold display">Gold</h1>
+    <p class="script gold-soft">Go on, open it.</p>
+    <img class="hero-img" src="{{ url_for('static', filename='img/hero-toffee.jpg') }}" alt="Chocolate-covered butter toffee topped with toasted slivered almonds" width="1200" height="545">
+    <p class="lede">Some days call for something sweeter.</p>
+    <a class="btn gold-btn" href="#treats">Treat yourself</a>
+    <p class="hero-note">Delivered free {{ delivery_date }}</p>
   </section>
 
-  <h2>Pick your treats</h2>
-  {% include "_disclosure.html" %}
-  <div class="grid">
-  {% for p in cfg.products %}
-    <div class="card" data-id="{{ p.id }}" data-price="{{ p.price_cents }}" data-name="{{ p.name }}" data-contains="{{ contains(p.allergens) }}">
-      <div class="imgw"><img src="{{ url_for('static', filename='img/' ~ p.id ~ '.svg') }}" alt="{{ p.name }} (sample image)"><span class="sample-tag">SAMPLE</span></div>
-      <div class="b"><h3>{{ p.name }}</h3><div class="cname">{{ p.common_name }}</div><div class="d">{{ p.desc }}</div>
-        <div class="contains">{{ contains(p.allergens) }}</div>
-        <div class="price">{{ p.price_cents|money }} <span class="unit">/ {{ p.unit }}</span></div>
-        <div class="step"><button class="m" aria-label="Remove one">−</button><span class="q">0</span><button class="p" aria-label="Add one">+</button></div>
-      </div>
+  <section id="treats" class="sec">
+    <div class="eyebrow">The Collection</div>
+    <h2 class="script-h">Choose your indulgence</h2>
+    <p class="stmt-line">{{ cfg.cottage_food_disclosure }}</p>
+    <div class="grid">
+    {% for p in cfg.products %}
+      <article class="card" data-id="{{ p.id }}" data-price="{{ p.price_cents }}" data-name="{{ p.name }}" data-contains="{{ contains(p.allergens) }}">
+        <div class="no">No. {{ '%02d' % loop.index }}</div>
+        <h3>{{ p.name }}</h3>
+        <p class="d">{{ p.desc }}</p>
+        <p class="fine-meta"><span class="cname">{{ p.common_name }}</span> · <span class="contains">{{ contains(p.allergens) }}</span></p>
+        <div class="buy">
+          <div class="price">{{ p.price_cents|money }}<span class="unit">{{ p.unit }}</span></div>
+          <div class="step"><button class="m" aria-label="Remove one {{ p.name }}">−</button><span class="q" aria-live="polite">0</span><button class="p" aria-label="Add one {{ p.name }}">+</button></div>
+        </div>
+      </article>
+    {% endfor %}
     </div>
-  {% endfor %}
-  </div>
+  </section>
 
   <section class="panel" id="cart">
-    <h2 style="margin-top:0">Your order</h2>
-    <div id="lines"><div class="row" style="color:var(--muted)">Your cart is empty — tap + to add treats.</div></div>
-    <div class="row"><span>Delivery: <b>{{ delivery_date }}</b></span><span class="free">FREE</span></div>
-    <div style="font-size:12px;color:var(--muted)">Orders placed by {{ cutoff_label }} arrive the next delivery day ({{ days_label }}; no Sunday delivery).</div>
-    <div class="row"><span>Subtotal</span><span id="subtotal">$0.00</span></div>
-    <div class="row"><span>{{ tax_label }}</span><span id="tax">$0.00</span></div>
-    <div class="row t"><span>Total</span><span id="total">$0.00</span></div>
+    <div class="eyebrow">Your box</div>
+    <div id="lines"><p class="empty">Your box is empty. Tap + to add a treat.</p></div>
+    <div class="sums">
+      <div class="row"><span>Delivery · {{ delivery_date }}</span><span class="free">Free</span></div>
+      <div class="row"><span>Subtotal</span><span id="subtotal">$0.00</span></div>
+      <div class="row"><span>{{ tax_label }}</span><span id="tax">$0.00</span></div>
+      <div class="row t"><span>Total</span><span id="total">$0.00</span></div>
+    </div>
     <label for="zip">Delivery ZIP code</label>
-    <input id="zip" inputmode="numeric" maxlength="5" placeholder="e.g. 78130" autocomplete="postal-code">
+    <input id="zip" inputmode="numeric" maxlength="5" placeholder="78130" autocomplete="postal-code">
     <div id="zipmsg"></div>
-    <button class="btn" id="checkout" style="margin-top:14px" disabled>Checkout</button>
+    <button class="btn gold-btn" id="checkout" disabled>Checkout</button>
+    <p class="fine center">Order by {{ cutoff_label }} for next-day delivery ({{ days_label }}; no Sunday delivery) · Secure checkout</p>
     <div id="err"></div>
   </section>
-  <p class="foot">{{ cfg.cottage_food_disclosure }}<br><a href="/food-safety">Food safety &amp; allergen info</a><br>Questions? <a href="tel:{{ cfg.contact_phone }}">{{ cfg.contact_phone }}</a> · <a href="mailto:{{ cfg.contact_email }}">{{ cfg.contact_email }}</a></p>
+
+  <section class="info" aria-label="Good to know">
+    <div class="eyebrow">Good to know</div>
+    <details><summary>Delivery</summary>
+      <p>Free next-day delivery, {{ days_label }}. Orders placed by {{ cutoff_label }} arrive the next delivery day; there is no Sunday delivery. Order now and we'll deliver <b>{{ delivery_date }}</b>.</p>
+      <p>{{ cfg.delivery_note }}</p></details>
+    <details><summary>Allergens</summary>
+      {% if not cfg.allergens_confirmed %}<p class="tbc">{{ cfg.allergen_note }}</p>{% endif %}
+      <ul>{% for p in cfg.products %}<li><b>{{ p.name }}</b><br><span>{{ p.common_name }} · {{ contains(p.allergens) }}</span></li>{% endfor %}</ul>
+      <p><a href="/food-safety">Full food safety &amp; allergen info</a></p></details>
+    <details><summary>Questions</summary>
+      <p>Call or text <a href="tel:{{ cfg.contact_phone }}">{{ cfg.contact_phone }}</a><br><a href="mailto:{{ cfg.contact_email }}">{{ cfg.contact_email }}</a></p></details>
+  </section>
+
+  <footer class="foot">{% include "_disclosure.html" %}</footer>
 </main>
-<div class="bar"><div class="in"><div class="sum"><span id="count">0 items</span><br><b id="bartotal">$0.00</b> incl. tax · free delivery</div><a class="btn" href="#cart" id="viewcart">View cart</a></div></div>
+<div class="bar" id="bar" aria-hidden="true"><div class="in"><div class="sum"><span id="count">0 items</span><b id="bartotal">$0.00</b><small>incl. tax · free delivery</small></div><a class="btn gold-btn" href="#cart" id="viewcart">View box</a></div></div>
 <script>
 const SRC = {{ src|tojson }};
 const TAX_RATE = {{ tax_rate|tojson }};
 const cart = JSON.parse(localStorage.getItem('cart') || '{}');
 const fmt = c => '$' + (c/100).toFixed(2);
+const EMPTY = '<p class="empty">Your box is empty. Tap + to add a treat.</p>';
 let zipOk = false;
 function render(){
   let total=0,count=0,html='';
   document.querySelectorAll('.card').forEach(c=>{
     const id=c.dataset.id,q=cart[id]||0,pr=+c.dataset.price;
     c.querySelector('.q').textContent=q;
-    if(q){total+=q*pr;count+=q;html+=`<div class="row"><span>${q} × ${c.dataset.name}<span class="sub">${c.dataset.contains}</span></span><span>${fmt(q*pr)}</span></div>`}
+    c.classList.toggle('on',q>0);
+    if(q){total+=q*pr;count+=q;html+=`<div class="row line"><span>${q} × ${c.dataset.name}<span class="sub">${c.dataset.contains}</span></span><span>${fmt(q*pr)}</span></div>`}
   });
-  document.getElementById('lines').innerHTML=html||'<div class="row" style="color:var(--muted)">Your cart is empty — tap + to add treats.</div>';
+  document.getElementById('lines').innerHTML=html||EMPTY;
   const tax=Math.round(total*TAX_RATE/100);
   document.getElementById('subtotal').textContent=fmt(total);
   document.getElementById('tax').textContent=fmt(tax);
   document.getElementById('total').textContent=fmt(total+tax);
   document.getElementById('bartotal').textContent=fmt(total+tax);
   document.getElementById('count').textContent=count+(count==1?' item':' items');
+  const bar=document.getElementById('bar');bar.classList.toggle('show',count>0);bar.setAttribute('aria-hidden',count>0?'false':'true');
   document.getElementById('checkout').disabled=!(count&&zipOk);
   localStorage.setItem('cart',JSON.stringify(cart));
 }
@@ -74,7 +101,7 @@ async function checkZip(){
   const z=zipEl.value.trim();zipOk=false;zipMsg.innerHTML='';
   if(z.length===5){
     const r=await fetch('/api/check-zip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({zip:z})}).then(r=>r.json());
-    zipOk=r.ok;zipMsg.innerHTML=r.ok?'<div class="msg ok">✓ Great news — we deliver to '+z+'!</div>':'<div class="msg bad">'+r.message+'</div>';
+    zipOk=r.ok;zipMsg.innerHTML=r.ok?'<div class="msg ok">Lovely, we deliver to '+z+'.</div>':'<div class="msg bad">'+r.message+'</div>';
     localStorage.setItem('zip',z);
   }
   render();

@@ -1,7 +1,7 @@
 <div class="disclosure" role="note" aria-label="Cottage food disclosure">
   <div class="stmt">{{ cfg.cottage_food_disclosure }}</div>
-  <div class="op"><b>{{ cfg.business_name }}</b> · {{ operator_line }}</div>
+  <div class="op">{{ cfg.business_name }} · {{ operator_line }}</div>
   <div class="op">{{ cfg.delivery_note }}</div>
-  {% if not cfg.allergens_confirmed %}<div class="op tbc">⚠ {{ cfg.allergen_note }}</div>{% endif %}
+  {% if not cfg.allergens_confirmed %}<div class="op tbc">{{ cfg.allergen_note }}</div>{% endif %}
   <div class="op"><a href="/food-safety">Food safety &amp; allergen info</a></div>
 </div>
