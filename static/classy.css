@@ -225,3 +225,17 @@ details li{padding:6px 0}details li span{font-size:12px;color:var(--muted)}
   .bz-glow{animation:none;opacity:.6}.bz-trails,.rider,.sp{display:none}.bz-boost,.bz-trails{transition:none}
 }
 @media (min-width:760px){.bezel{--inset:10px;--r:20px}}
+
+/* desktop-only QR card (cream card, thin gold border, like the flyer), set in the hero's right margin beside the headline */
+.qr-card{display:none}
+@media (min-width:900px){
+  .hero{position:relative}
+  .qr-card{display:block;position:absolute;top:58px;right:0;width:168px;padding:14px 14px 16px;text-align:center;
+    background:linear-gradient(160deg,#FBF3E2,#F1E1C2);border:1px solid #D9AE63;border-radius:18px;
+    box-shadow:0 0 0 4px rgba(217,174,99,.10),0 20px 44px -20px rgba(0,0,0,.75)}
+  .qr-card img{display:block;width:112px;height:112px;margin:4px auto 0}
+  .qr-txt p{margin:0}
+  .qr-script{font-family:var(--script);font-size:29px;line-height:1;color:#5A3216;margin-top:12px!important}
+  .qr-serif{font-family:var(--serif);font-style:italic;font-size:16px;line-height:1.2;color:#3A2210;margin-top:2px!important}
+  .qr-fine{font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:#9C6B24;margin-top:9px!important;padding-left:.22em}
+}

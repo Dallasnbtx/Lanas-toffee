@@ -3,6 +3,10 @@
   {% if mode == 'demo' %}<div class="demo">Preview · sample prices, no payment taken</div>{% endif %}
 
   <section class="hero">
+    <aside class="qr-card" aria-label="Scan to order from your phone">
+      <img src="{{ url_for('static', filename='img/qr-desktop.svg') }}" width="112" height="112" alt="QR code linking to this shop">
+      <div class="qr-txt"><p class="qr-script">Scan to order</p><p class="qr-serif">from your phone</p><p class="qr-fine">Use your camera</p></div>
+    </aside>
     <p class="pre">You deserve a little</p>
     <h1 class="gold display">Gold</h1>
     <p class="script gold-soft">Go on, open it.</p>

@@ -1,4 +1,5 @@
-import os, json, sqlite3, secrets, csv, io, logging, datetime, threading
+import os, re, hmac, json, sqlite3, secrets, csv, io, logging, datetime, threading
+from decimal import Decimal, ROUND_HALF_UP
 from functools import wraps
 from zoneinfo import ZoneInfo
 from flask import (Flask, render_template, request, jsonify, redirect, url_for,
@@ -45,7 +46,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 if ADMIN_PASSWORD == "changeme":
     log.warning("ADMIN_PASSWORD is the default 'changeme' - set it in .env")
 app.secret_key = os.environ.get("FLASK_SECRET", secrets.token_hex(16))
-STATUSES = ["new", "out for delivery", "delivered", "cancelled"]
+STATUSES = ["new", "out for delivery", "delivered", "cancelled", "refunded"]
 PENDING = {}  # demo-mode carts awaiting the mock checkout form
 _lock = threading.Lock()
 
@@ -86,9 +87,13 @@ def init_db():
         notes TEXT, src TEXT, items_json TEXT, total_cents INTEGER,
         delivery_date TEXT, in_area INTEGER DEFAULT 1)""")
     cols = {r[1] for r in c.execute("PRAGMA table_info(orders)")}
-    for col, typ in [("delivery_date_iso", "TEXT"), ("subtotal_cents", "INTEGER"), ("tax_cents", "INTEGER")]:
+    for col, typ in [("delivery_date_iso", "TEXT"), ("subtotal_cents", "INTEGER"), ("tax_cents", "INTEGER"),
+                     ("refunded_cents", "INTEGER DEFAULT 0"), ("payment_intent", "TEXT")]:
         if col not in cols:  # migration for older DBs
             c.execute(f"ALTER TABLE orders ADD COLUMN {col} {typ}")
+    c.execute("""CREATE TABLE IF NOT EXISTS partner_payouts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, partner_slug TEXT, paid_on TEXT, period TEXT,
+        amount_cents INTEGER, method TEXT, note TEXT)""")
     c.commit()
     c.close()
 
@@ -165,6 +170,161 @@ def build_items(raw):
 
 def clean_src(s):
     return "".join(ch for ch in (s or "") if ch.isalnum() or ch in "-_")[:40]
+
+
+# ---------- restaurant partners ----------
+def load_partners(raw=None):
+    """PARTNERS env var: 'slug:tagprefix:percent:key[:Display Name]' entries separated by ';' or newlines.
+    Example: PARTNERS='gristmill:gristmill10:10:<long random key>:The Gristmill'. Bad entries are skipped."""
+    raw = os.environ.get("PARTNERS", "") if raw is None else raw
+    out = {}
+    for ent in re.split(r"[;\n]+", raw):
+        parts = [x.strip() for x in ent.strip().split(":")]
+        if len(parts) not in (4, 5) or not all(parts[:4]):
+            continue
+        slug, prefix, pct, key = parts[:4]
+        name = parts[4] if len(parts) == 5 and parts[4] else slug.replace("-", " ").title()
+        try:
+            pct = Decimal(pct)
+        except Exception:
+            continue
+        if len(key) < 24 or clean_src(prefix) != prefix:  # refuse short keys / odd prefixes
+            log.warning("partner %s skipped: key too short or bad prefix", slug)
+            continue
+        out[slug] = {"slug": slug, "prefix": prefix, "pct": pct, "key": key, "name": name}
+    return out
+
+
+def src_matches(src, prefix):
+    """Tag belongs to a partner if it IS the prefix or continues with '-' or '_' (gristmill10, gristmill10-s07).
+    'gristmill100' does not match 'gristmill10'."""
+    src = src or ""
+    return bool(prefix) and (src == prefix or (src.startswith(prefix) and src[len(prefix)] in "-_"))
+
+
+def server_of(src, prefix):
+    m = re.fullmatch(r"[-_]s(\d{1,3})", (src or "")[len(prefix):])
+    return f"{int(m.group(1)):02d}" if m else "house"
+
+
+def commission_cents(net_cents, pct):
+    return int((Decimal(int(net_cents or 0)) * Decimal(pct) / 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def net_item_cents(o):
+    """Item subtotal (no tax, no delivery) less any refund. Refunds are pro-rated onto the subtotal."""
+    sub = int(o.get("subtotal_cents") or 0)
+    total = int(o.get("total_cents") or 0)
+    ref = int(o.get("refunded_cents") or 0)
+    if o.get("status") in ("cancelled", "refunded") or (total and ref >= total):
+        return 0
+    if ref and total:
+        sub -= min(sub, int((Decimal(ref) * sub / total).quantize(Decimal("1"), rounding=ROUND_HALF_UP)))
+    return max(sub, 0)
+
+
+PARTNER_COLS = "id, created_at, src, subtotal_cents, total_cents, refunded_cents, status, payment_status"
+
+
+def partner_orders(prefix, pct):
+    """Paid orders for a partner, reduced to non-PII fields only."""
+    rows = db().execute(f"SELECT {PARTNER_COLS} FROM orders WHERE payment_status='paid' ORDER BY created_at DESC, id DESC").fetchall()
+    out = []
+    for r in rows:
+        o = dict(r)
+        if not src_matches(o["src"], prefix):
+            continue
+        net = net_item_cents(o)
+        try:
+            dt = datetime.datetime.strptime(o["created_at"], "%Y-%m-%d %H:%M")
+            day, tm = dt.strftime("%b %-d, %Y"), dt.strftime("%-I:%M %p")
+        except (TypeError, ValueError):
+            day, tm = o["created_at"] or "", ""
+        out.append({"id": o["id"], "date": o["created_at"], "day": day, "time": tm, "month": (o["created_at"] or "")[:7],
+                    "server": server_of(o["src"], prefix), "item_cents": int(o["subtotal_cents"] or 0),
+                    "net_cents": net, "commission_cents": commission_cents(net, pct),
+                    "refunded": bool(o["refunded_cents"]) or o["status"] in ("cancelled", "refunded"),
+                    "partial": bool(o["refunded_cents"]) and net > 0})
+    return out
+
+
+def month_label(ym):
+    try:
+        return datetime.date.fromisoformat(ym + "-01").strftime("%B %Y")
+    except ValueError:
+        return ym
+
+
+def due_date_label(ym):
+    y, m = map(int, ym.split("-"))
+    y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return datetime.date(y, m, 10).strftime("%b 10, %Y")
+
+
+def summarize(orders, key):
+    acc = {}
+    for o in orders:
+        a = acc.setdefault(o[key], {"orders": 0, "net_cents": 0, "commission_cents": 0})
+        a["orders"] += 1; a["net_cents"] += o["net_cents"]; a["commission_cents"] += o["commission_cents"]
+    return acc
+
+
+@app.route("/partner/<slug>")
+def partner_page(slug):
+    partners = load_partners()
+    p = partners.get(slug)
+    key = request.args.get("key", "")
+    expected = p["key"] if p else secrets.token_urlsafe(32)
+    if not hmac.compare_digest(key.encode(), expected.encode()) or not p:
+        abort(404)
+    orders = partner_orders(p["prefix"], p["pct"])
+    cur = datetime.datetime.now(TZ).strftime("%Y-%m")
+    by_month = summarize(orders, "month")
+    by_server = summarize(orders, "server")
+    payouts = [dict(r) for r in db().execute(
+        "SELECT paid_on, period, amount_cents, method, note FROM partner_payouts WHERE partner_slug=? ORDER BY paid_on DESC",
+        (slug,)).fetchall()]
+    earned = sum(o["commission_cents"] for o in orders)
+    paid = sum(x["amount_cents"] or 0 for x in payouts)
+    resp = Response(render_template(
+        "partner.html", cfg=load_config(), p=p, orders=orders, cur=cur, cur_label=month_label(cur),
+        cur_sum=by_month.get(cur, {"orders": 0, "net_cents": 0, "commission_cents": 0}),
+        prior=[(m, month_label(m), due_date_label(m), v) for m, v in sorted(by_month.items(), reverse=True) if m < cur],
+        servers=sorted(by_server.items(), key=lambda kv: (kv[0] == "house", kv[0])),
+        payouts=payouts, earned=earned, paid=paid, pct_label=f"{p['pct'].normalize():f}%",
+        now_label=datetime.datetime.now(TZ).strftime("%b %-d, %Y %-I:%M %p")))
+    resp.headers["X-Robots-Tag"] = "noindex, nofollow"
+    resp.headers["Cache-Control"] = "no-store"
+    resp.headers["Referrer-Policy"] = "no-referrer"
+    return resp
+
+
+def by_partner_rollup(rows, partners=None):
+    """Admin rollup: configured partners by prefix; other tags ending in -sNN grouped by their base."""
+    partners = load_partners() if partners is None else partners
+    out = {}
+    if not partners:  # feature off: nothing to show
+        return out
+    for o in rows:
+        src = o.get("src") or ""
+        if not src:
+            continue
+        p = next((p for p in partners.values() if src_matches(src, p["prefix"])), None)
+        if p:
+            k = p["prefix"]
+        else:
+            m = re.fullmatch(r"(.+?)[-_]s\d{1,3}", src)
+            if not m:
+                continue
+            k = m.group(1)
+        a = out.setdefault(k, {"slug": p["slug"] if p else "", "pct": p["pct"] if p else None, "orders": 0,
+                               "tags": set(), "total_cents": 0, "net_cents": 0, "commission_cents": 0})
+        a["orders"] += 1; a["tags"].add(src); a["total_cents"] += o.get("total_cents") or 0
+        if o.get("payment_status") == "paid":
+            net = net_item_cents(o); a["net_cents"] += net
+            if p:
+                a["commission_cents"] += commission_cents(net, p["pct"])
+    return out
 
 
 # ---------- public pages ----------
@@ -305,7 +465,9 @@ def parse_stripe_session(s):
     else:
         created = datetime.datetime.fromtimestamp(s.get("created") or datetime.datetime.now().timestamp(), TZ)
         ddate, diso = delivery_info(created)
-    return dict(mode="stripe", stripe_session_id=s["id"], payment_status="paid",
+    pi = s.get("payment_intent")
+    pi = pi.get("id") if isinstance(pi, dict) else pi
+    return dict(mode="stripe", stripe_session_id=s["id"], payment_status="paid", payment_intent=pi or None,
                 customer_name=ship.get("name") or cd.get("name") or "", email=cd.get("email") or "",
                 phone=cd.get("phone") or "", address=addr, zip=z, notes=notes, src=md.get("src", ""),
                 items=items, subtotal_cents=subtotal, tax_cents=tax, total_cents=total, delivery_date=ddate, delivery_date_iso=diso,
@@ -332,7 +494,65 @@ def stripe_webhook():
         return jsonify(error="invalid signature"), 400
     if event["type"] in ("checkout.session.completed", "checkout.session.async_payment_succeeded"):
         record_stripe_session(event["data"]["object"]["id"])
+    elif event["type"] in ("charge.refunded", "charge.refund.updated"):
+        try:
+            record_refund(event["type"], event["data"]["object"])
+        except Exception as e:  # never make Stripe retry forever over a lookup problem; log it
+            log.warning("Refund event %s not applied: %s", event.get("id"), e)
     return jsonify(received=True)
+
+
+def _obj(x):
+    return x.to_dict() if hasattr(x, "to_dict") else dict(x or {})
+
+
+def order_for_payment_intent(pi):
+    """Find our order for a PaymentIntent; backfill orders recorded before payment_intent was stored."""
+    if not pi:
+        return None
+    r = db().execute("SELECT id, total_cents, status FROM orders WHERE payment_intent=?", (pi,)).fetchone()
+    if r:
+        return r
+    lst = _obj(stripe.checkout.Session.list(payment_intent=pi, limit=1))
+    for sess in lst.get("data") or []:
+        sid = _obj(sess).get("id")
+        r = db().execute("SELECT id, total_cents, status FROM orders WHERE stripe_session_id=?", (sid,)).fetchone()
+        if r:
+            db().execute("UPDATE orders SET payment_intent=? WHERE id=?", (pi, r["id"]))
+            db().commit()
+            return r
+    return None
+
+
+def record_refund(etype, obj):
+    """charge.refunded (Charge) / charge.refund.updated (Refund): set refunded_cents from the charge's
+    current amount_refunded. Absolute value, so repeated or re-delivered events are idempotent."""
+    obj = _obj(obj)
+    charge_id = obj.get("id") if etype == "charge.refunded" else obj.get("charge")
+    charge = obj if etype == "charge.refunded" else {}
+    if charge_id:
+        try:
+            charge = _obj(stripe.Charge.retrieve(charge_id))  # fresh copy: safe if events arrive out of order
+        except Exception as e:
+            log.warning("Could not fetch charge %s (%s); using event data", charge_id, e)
+    pi = charge.get("payment_intent") or obj.get("payment_intent")
+    pi = pi.get("id") if isinstance(pi, dict) else pi
+    if "amount_refunded" not in charge:
+        log.warning("Refund event without charge totals for %s; ignored", pi); return None
+    r = order_for_payment_intent(pi)
+    if not r:
+        log.info("Refund for unknown payment %s ignored", pi); return None
+    refunded = int(charge.get("amount_refunded") or 0)
+    amount = int(charge.get("amount") or r["total_cents"] or 0)
+    d = db()
+    d.execute("UPDATE orders SET refunded_cents=? WHERE id=?", (refunded, r["id"]))
+    if amount and refunded >= amount:
+        d.execute("UPDATE orders SET status='refunded' WHERE id=?", (r["id"],))
+    elif r["status"] == "refunded":  # a refund was reversed/failed: reopen
+        d.execute("UPDATE orders SET status='new' WHERE id=?", (r["id"],))
+    d.commit()
+    log.info("Order #%s refunded_cents=%s of %s", r["id"], refunded, amount)
+    return r["id"]
 
 
 @app.route("/success")
@@ -372,7 +592,7 @@ def admin():
     rows = [row_to_order(r) for r in db().execute("SELECT * FROM orders ORDER BY id DESC").fetchall()]
     by_day = {}
     for o in rows:
-        if o["status"] not in ("delivered", "cancelled"):
+        if o["status"] not in ("delivered", "cancelled", "refunded"):
             by_day.setdefault((o.get("delivery_date_iso") or "", o["delivery_date"]), []).append(o["id"])
     by_src = {}
     for o in rows:
@@ -381,7 +601,21 @@ def admin():
         by_src[k][0] += 1
         by_src[k][1] += o["total_cents"] or 0
     return render_template("admin.html", cfg=load_config(), orders=rows, statuses=STATUSES, mode=MODE,
-                           by_src=by_src, by_day=sorted(by_day.items()))
+                           by_src=by_src, by_day=sorted(by_day.items()), by_partner=by_partner_rollup(rows),
+                           partners_on=bool(load_partners()))
+
+
+@app.post("/admin/orders/<int:oid>/refunded")
+@require_admin
+def admin_refunded(oid):
+    """Mark an order fully refunded (after refunding in Stripe) or clear the flag. Drives partner commissions."""
+    d = db()
+    r = d.execute("SELECT total_cents FROM orders WHERE id=?", (oid,)).fetchone()
+    if not r:
+        abort(404)
+    d.execute("UPDATE orders SET refunded_cents=? WHERE id=?", (r["total_cents"] if request.form.get("on") == "1" else 0, oid))
+    d.commit()
+    return redirect(url_for("admin"))
 
 
 @app.post("/admin/orders/<int:oid>/status")

@@ -10,10 +10,13 @@
   <div class="panel"><b>Conversions by flyer source</b>
     {% for k,v in by_src.items() %}<div class="row"><span>{{ k }}</span><span>{{ v[0] }} order{{ '' if v[0]==1 else 's' }} · {{ v[1]|money }}</span></div>{% else %}<div class="row">No orders yet.</div>{% endfor %}
   </div>
+  {% if partners_on %}<div class="panel"><b>By partner</b> <span style="font-size:13px;color:var(--muted)">(tags grouped by prefix; commission on paid, non-refunded item subtotal)</span>
+    {% for k,v in by_partner.items() %}<div class="row"><span>{{ k }}{% if v.slug %} · {{ v.slug }} {{ v.pct }}%{% endif %}<span class="sub" style="display:block;font-size:12px;color:var(--muted)">{{ v.tags|length }} tag{{ '' if v.tags|length==1 else 's' }}</span></span><span>{{ v.orders }} order{{ '' if v.orders==1 else 's' }} · {{ v.total_cents|money }}{% if v.slug %} · owed {{ v.commission_cents|money }}{% endif %}</span></div>{% else %}<div class="row">No partner orders yet.</div>{% endfor %}
+  </div>{% endif %}
   {% for o in orders %}
   <div class="panel">
     <div class="row"><b>#{{ o.id }} · {{ o.customer_name }}</b><span class="st st-{{ o.status.split(' ')[0] }}">{{ o.status }}</span></div>
-    <div style="font-size:13px;color:var(--muted)">{{ o.created_at }} CT · {{ o.payment_status }} · src: {{ o.src or '-' }}{% if not o.in_area %} · <b style="color:var(--bad)">OUTSIDE DELIVERY AREA — refund/contact</b>{% endif %}</div>
+    <div style="font-size:13px;color:var(--muted)">{{ o.created_at }} CT · {{ o.payment_status }}{% if o.refunded_cents %} · <b style="color:var(--bad)">refunded {{ o.refunded_cents|money }}</b>{% endif %} · src: {{ o.src or '-' }}{% if not o.in_area %} · <b style="color:var(--bad)">OUTSIDE DELIVERY AREA — refund/contact</b>{% endif %}</div>
     <p style="margin:8px 0;font-size:14px">📍 {{ o.address }}<br>📞 <a href="tel:{{ o.phone }}">{{ o.phone }}</a> · ✉️ {{ o.email }}{% if o.notes %}<br>📝 {{ o.notes }}{% endif %}<br>🚚 <b>Deliver {{ o.delivery_date }}</b></p>
     {% for i in o['items'] %}<div class="row" style="font-size:14px"><span>{{ i.qty }} × {{ i.name }} ({{ i.unit }})<span class="sub">{{ contains(i.allergens or []) }}</span></span><span>{{ (i.qty*i.price_cents)|money }}</span></div>{% endfor %}
     <div class="row" style="font-size:14px"><span>Subtotal</span><span>{{ o.subtotal_cents|money }}</span></div>
@@ -23,6 +26,8 @@
     <form method="post" action="/admin/orders/{{ o.id }}/status" style="display:flex;gap:8px;margin-top:8px">
       <select name="status">{% for s in statuses %}<option {% if s==o.status %}selected{% endif %}>{{ s }}</option>{% endfor %}</select>
       <button class="btn" style="width:auto;padding:10px 16px;font-size:14px">Update</button></form>
+    <form method="post" action="/admin/orders/{{ o.id }}/refunded" style="margin-top:6px"><input type="hidden" name="on" value="{{ '0' if o.refunded_cents else '1' }}">
+      <button class="btn" style="width:auto;padding:6px 12px;font-size:12px">{{ 'Clear refunded flag' if o.refunded_cents else 'Mark refunded (after refunding in Stripe)' }}</button></form>
   </div>
   {% else %}<p>No orders yet.</p>{% endfor %}
 </main>{% endblock %}

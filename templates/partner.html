@@ -1,0 +1,83 @@
+{% extends "base_classy.html" %}
+{% block title %}Partner orders · {{ cfg.business_name }}{% endblock %}
+{% block head %}<meta name="robots" content="noindex, nofollow, noarchive"><meta name="referrer" content="no-referrer">
+<style>
+.pwrap{max-width:880px;margin:0 auto;padding:0 20px 70px}
+.pwrap .panel{margin-top:28px;padding:22px 20px}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
+.kpi{border:1px solid var(--line2);border-radius:16px;padding:14px 10px;text-align:center}
+.kpi b{display:block;font-family:var(--serif);font-weight:400;font-size:26px;color:var(--cream)}
+.kpi span{font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
+.kpi.gold-k b{color:var(--gold-solid)}
+table.pt{width:100%;border-collapse:collapse;margin-top:12px;font-size:14px}
+.pt th{font-weight:400;font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);text-align:left;padding:6px 6px;border-bottom:1px solid var(--line)}
+.pt td{padding:9px 6px;border-bottom:1px solid var(--line2);color:var(--cream2)}
+.pt .n{text-align:right;font-variant-numeric:tabular-nums}
+.pt tr.ref td{color:var(--faint)} .pt tr.ref .c{text-decoration:line-through}
+.nw{white-space:nowrap}.tm{display:block;font-size:11px;color:var(--faint)}
+.pt td .tag{margin-left:8px}
+.tag{display:inline-block;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--line);border-radius:999px;padding:1px 8px;color:var(--muted)}
+.tag.r{color:var(--bad);border-color:rgba(241,180,166,.35)}
+.ph{text-align:center;padding-top:26px}
+.ph .script-h{font-size:40px}
+.sub2{font-family:var(--corm);font-style:italic;font-size:19px;color:var(--cream2);text-align:center;margin:4px 0 0}
+.note{font-size:12px;color:var(--faint);margin-top:10px}
+@media (max-width:560px){.kpi b{font-size:20px}.kpi span{letter-spacing:.1em;font-size:9.5px}.pt td .tag{display:block;margin:4px 0 0 auto;width:max-content}.pwrap{padding:0 14px 60px}.pwrap .panel{padding:18px 14px}.pt{font-size:13px}.pt th,.pt td{padding:8px 4px}.hide-sm{display:none}}
+</style>{% endblock %}
+{% block bezel %}{% endblock %}
+{% block body %}
+<main class="pwrap">
+  <section class="ph">
+    <span class="eyebrow">Private partner page</span>
+    <p class="script-h gold-soft">{{ p.name }}</p>
+    <p class="sub2">Lana's Toffee partner orders, live. Commission {{ pct_label }} of item sales.</p>
+  </section>
+
+  <div class="panel">
+    <span class="eyebrow">{{ cur_label }} so far</span>
+    <div class="kpis">
+      <div class="kpi"><b>{{ cur_sum.orders }}</b><span>Orders</span></div>
+      <div class="kpi"><b>{{ cur_sum.net_cents|money }}</b><span>Item sales</span></div>
+      <div class="kpi gold-k"><b>{{ cur_sum.commission_cents|money }}</b><span>Your {{ pct_label }}</span></div>
+    </div>
+    <div class="row muted" style="margin-top:12px"><span>Earned to date {{ earned|money }} · Paid {{ paid|money }}</span><span>Balance {{ (earned - paid)|money }}</span></div>
+  </div>
+
+  <div class="panel">
+    <span class="eyebrow">Orders</span>
+    <table class="pt"><thead><tr><th>Date (CT)</th><th>Order</th><th>Card</th><th class="n hide-sm">Items</th><th class="n">Commission</th></tr></thead><tbody>
+    {% for o in orders %}<tr class="{{ 'ref' if o.refunded and not o.partial }}"><td><span class="nw">{{ o.day }}</span><span class="tm">{{ o.time }}</span></td><td class="nw">#{{ o.id }}</td>
+      <td class="nw">{% if o.server == 'house' %}House{% else %}No. {{ o.server }}{% endif %}</td>
+      <td class="n hide-sm">{{ o.item_cents|money }}</td><td class="n"><span class="c">{{ o.commission_cents|money }}</span>{% if o.partial %}<span class="tag r">Part refund</span>{% elif o.refunded %}<span class="tag r">Refunded</span>{% endif %}</td></tr>
+    {% else %}<tr><td colspan="5">No orders yet. They'll appear here as soon as a guest orders.</td></tr>{% endfor %}
+    </tbody></table>
+    <p class="note">Item sales exclude sales tax and delivery. Refunded or cancelled orders earn no commission; partial refunds reduce it.</p>
+  </div>
+
+  <div class="panel">
+    <span class="eyebrow">By server card</span>
+    <table class="pt"><thead><tr><th>Card</th><th class="n">Orders</th><th class="n">Item sales</th><th class="n">Commission</th></tr></thead><tbody>
+    {% for s, v in servers %}<tr><td>{% if s == 'house' %}House{% else %}No. {{ s }}{% endif %}</td><td class="n">{{ v.orders }}</td><td class="n">{{ v.net_cents|money }}</td><td class="n">{{ v.commission_cents|money }}</td></tr>
+    {% else %}<tr><td colspan="4">No orders yet.</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+
+  <div class="panel">
+    <span class="eyebrow">Prior months</span>
+    <table class="pt"><thead><tr><th>Month</th><th class="n">Orders</th><th class="n hide-sm">Item sales</th><th class="n">Commission</th><th class="n">Due</th></tr></thead><tbody>
+    {% for m, label, due, v in prior %}<tr><td>{{ label }}</td><td class="n">{{ v.orders }}</td><td class="n hide-sm">{{ v.net_cents|money }}</td><td class="n">{{ v.commission_cents|money }}</td><td class="n">{{ due }}</td></tr>
+    {% else %}<tr><td colspan="5">No prior months yet.</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+
+  <div class="panel">
+    <span class="eyebrow">Payouts</span>
+    <table class="pt"><thead><tr><th>Paid on</th><th>For</th><th class="n">Amount</th><th class="hide-sm">Method</th></tr></thead><tbody>
+    {% for x in payouts %}<tr><td>{{ x.paid_on }}</td><td>{{ x.period }}</td><td class="n">{{ x.amount_cents|money }}</td><td class="hide-sm">{{ x.method or '' }}</td></tr>
+    {% else %}<tr><td colspan="4">No payouts yet. Each month's commission is paid by the 10th of the next month.</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+
+  <p class="fine center">Updated {{ now_label }} CT · Customer names and contact details are never shown here.<br>
+  Please keep this link private. Questions: {{ cfg.contact_phone }} · {{ cfg.contact_email }}</p>
+</main>{% endblock %}
