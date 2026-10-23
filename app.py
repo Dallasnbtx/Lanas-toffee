@@ -4,7 +4,7 @@ from functools import wraps
 from zoneinfo import ZoneInfo
 from flask import (Flask, render_template, request, jsonify, redirect, url_for,
                    abort, Response, g)
-import notify, delivery, labeling
+import notify, delivery, labeling, route
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 BASE_DIR0 = os.path.dirname(os.path.abspath(__file__))
@@ -603,6 +603,33 @@ def admin():
     return render_template("admin.html", cfg=load_config(), orders=rows, statuses=STATUSES, mode=MODE,
                            by_src=by_src, by_day=sorted(by_day.items()), by_partner=by_partner_rollup(rows),
                            partners_on=bool(load_partners()))
+
+
+@app.route("/admin/route")
+@require_admin
+def admin_route():
+    """Delivery route for one day: stops in driving order, Google Maps links, printable stop list."""
+    cfg = load_config()
+    now = datetime.datetime.now(TZ)
+    day = request.args.get("date", "")
+    try:
+        day = datetime.date.fromisoformat(day).isoformat()
+    except ValueError:
+        day = route.default_day(db(), cfg, now, delivery.next_delivery_date(cfg, now))
+    d = datetime.date.fromisoformat(day)
+    rows = [row_to_order(r) for r in db().execute("SELECT * FROM orders WHERE delivery_date_iso=?", (day,)).fetchall()]
+    stops, outside, delivered = route.classify(rows, include_demo=(MODE == "demo"))
+    start_addr = os.environ.get("DELIVERY_START_ADDRESS", "").strip()
+    p = route.plan(db(), start_addr, stops)
+    if not start_addr:
+        p["notices"].insert(0, "DELIVERY_START_ADDRESS isn't set, so routes start from your phone's location and end at the last stop.")
+    for n, o in enumerate(p["stops"], 1):
+        o["stop_no"] = n
+    return render_template("route.html", cfg=cfg, day=day, day_label=delivery.pretty(d), plan=p,
+                           start_addr=start_addr, outside=outside, delivered=delivered, mode=MODE,
+                           prev_day=(d - datetime.timedelta(days=1)).isoformat(),
+                           next_day=(d + datetime.timedelta(days=1)).isoformat(),
+                           n_items=sum(i["qty"] for o in p["stops"] for i in o["items"]))
 
 
 @app.post("/admin/orders/<int:oid>/refunded")

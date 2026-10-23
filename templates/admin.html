@@ -3,9 +3,10 @@
   <h2>Orders <span class="badge">{{ mode|upper }} mode</span></h2>
   {% if not operator_set %}<div class="msg bad">Set <code>operator_address</code> or <code>dshs_id</code> in config.json — labels and receipts currently say "{{ operator_line }}".</div>{% endif %}
   {% if not cfg.allergens_confirmed %}<div class="msg bad">Allergens are SAMPLE values. Confirm each product's allergens, then set <code>"allergens_confirmed": true</code> in config.json.</div>{% endif %}
-  <p><a class="btn" style="display:inline-block;width:auto;padding:10px 16px;font-size:14px" href="/admin/orders.csv">Download CSV</a></p>
+  <p><a class="btn" style="display:inline-block;width:auto;padding:10px 16px;font-size:14px" href="/admin/orders.csv">Download CSV</a>
+    <a class="btn" style="display:inline-block;width:auto;padding:10px 16px;font-size:14px;margin-left:6px" href="/admin/route">🗺️ Delivery route</a></p>
   <div class="panel"><b>Open deliveries by day</b>
-    {% for (iso, label), ids in by_day %}<div class="row"><span>{{ label }}</span><span>{{ ids|length }} order{{ '' if ids|length==1 else 's' }} (#{{ ids|join(', #') }})</span></div>{% else %}<div class="row">Nothing to deliver.</div>{% endfor %}
+    {% for (iso, label), ids in by_day %}<div class="row"><span>{% if iso %}<a href="/admin/route?date={{ iso }}">{{ label }}</a>{% else %}{{ label }}{% endif %}</span><span>{{ ids|length }} order{{ '' if ids|length==1 else 's' }} (#{{ ids|join(', #') }})</span></div>{% else %}<div class="row">Nothing to deliver.</div>{% endfor %}
   </div>
   <div class="panel"><b>Conversions by flyer source</b>
     {% for k,v in by_src.items() %}<div class="row"><span>{{ k }}</span><span>{{ v[0] }} order{{ '' if v[0]==1 else 's' }} · {{ v[1]|money }}</span></div>{% else %}<div class="row">No orders yet.</div>{% endfor %}

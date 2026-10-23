@@ -1,0 +1,62 @@
+{% extends "base.html" %}{% block title %}Delivery route · {{ day_label }}{% endblock %}{% block body %}
+<style>
+.rt h2{margin:6px 0 4px}.rt .nav{display:flex;gap:8px;align-items:center;margin:8px 0}
+.rt .nav a{flex:0 0 auto;text-decoration:none;font-weight:700;color:var(--brand);border:1px solid var(--line);background:#fff;border-radius:12px;padding:10px 12px}
+.rt .nav form{flex:1;display:flex;gap:6px}.rt .nav input{padding:9px 10px}.rt .nav button{border:0;border-radius:12px;background:var(--brand);color:#fff;font-weight:700;padding:0 12px}
+.rt .sumry{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.rt .chip{background:#FFE7B8;color:#7A4A1E;border-radius:999px;padding:4px 10px;font-size:13px;font-weight:700}
+.rt .chip.ok{background:#D7F0DF;color:var(--ok)}.rt .chip.warn{background:#FDECEA;color:var(--bad)}
+.rt .maps{display:grid;gap:8px;margin:10px 0}.rt .maps a.btn{font-size:16px;padding:14px}.rt .maps .sub{text-align:center;margin-top:-4px}
+.rt .start{font-size:13px;color:var(--muted);margin:6px 0}
+.stop{display:grid;grid-template-columns:44px 1fr 34px;gap:10px;align-items:start;background:#fff;border:1px solid var(--line);border-radius:16px;padding:12px;margin-top:10px;break-inside:avoid}
+.stop .no{width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;font-weight:800;font-size:18px;display:flex;align-items:center;justify-content:center}
+.stop .nm{font-weight:800}.stop .ad{font-size:14px;margin:2px 0}.stop .ad a{color:var(--ink)}.stop .ph{font-size:14px}
+.stop ul{margin:6px 0 0;padding-left:18px;font-size:14px}.stop .nt{font-size:13px;background:#FFF3E3;border-radius:8px;padding:4px 8px;margin-top:6px}
+.stop .ck{width:28px;height:28px;margin:6px 0 0;accent-color:var(--ok)}.stop.done{opacity:.5}
+.prtbtn{background:#fff;color:var(--brand);border:1px solid var(--brand)}
+.print-head{display:none}
+@media print{
+  @page{margin:12mm}body{background:#fff}header.top,.noprint{display:none!important}.wrap{max-width:none;padding:0}
+  .print-head{display:block;margin-bottom:6px}.print-head h1{font-family:Georgia,serif;font-size:20px;margin:0}
+  .stop{border:1px solid #999;border-radius:6px;padding:8px;margin-top:6px;grid-template-columns:34px 1fr 26px}
+  .stop .no{width:28px;height:28px;font-size:14px;background:#fff;color:#000;border:2px solid #000}
+  .stop .ck{appearance:none;-webkit-appearance:none;width:20px;height:20px;border:2px solid #000;border-radius:3px}
+  .stop.done{opacity:1}.stop .nt{background:none;padding:0}a{color:#000;text-decoration:none}
+}
+</style>
+<main class="wrap rt" style="padding-bottom:40px">
+  <div class="print-head"><h1>{{ cfg.business_name }} · Deliveries {{ day_label }}</h1>
+    <div style="font-size:12px">{{ plan.stops|length }} stops · {{ n_items }} items{% if start_addr %} · Start/end: {{ start_addr }}{% endif %}{% if plan.miles %} · about {{ plan.miles }} mi, {{ plan.minutes }} min driving{% endif %}</div></div>
+  <div class="noprint">
+    <p style="margin:10px 0 0;font-size:14px"><a href="/admin">← Orders</a></p>
+    <h2>🗺️ Delivery route</h2>
+    <div class="nav"><a href="?date={{ prev_day }}" aria-label="Previous day">‹</a>
+      <form method="get"><input type="date" name="date" value="{{ day }}" aria-label="Delivery date"><button>Go</button></form>
+      <a href="?date={{ next_day }}" aria-label="Next day">›</a></div>
+    <div style="font-weight:800;font-size:18px">{{ day_label }}</div>
+    <div class="sumry"><span class="chip">{{ plan.stops|length }} stop{{ '' if plan.stops|length==1 else 's' }}</span><span class="chip">{{ n_items }} item{{ '' if n_items==1 else 's' }}</span>
+      {% if plan.stops %}{% if plan.optimized %}<span class="chip ok">✓ Shortest-drive order</span>{% if plan.miles %}<span class="chip">≈ {{ plan.miles }} mi · {{ plan.minutes }} min driving</span>{% endif %}{% else %}<span class="chip warn">Order-number order</span>{% endif %}{% endif %}
+      {% if mode == 'demo' %}<span class="chip">PREVIEW</span>{% endif %}</div>
+    {% for n in plan.notices %}<div class="msg bad">{{ n }}</div>{% endfor %}
+    {% if outside %}<div class="msg bad"><b>Not on the route, outside the delivery area:</b> {% for o in outside %}#{{ o.id }} {{ o.customer_name }} ({{ o.zip }}){{ ', ' if not loop.last }}{% endfor %}. Refund or contact them.</div>{% endif %}
+    {% if start_addr %}<div class="start">🏠 Start &amp; finish: {{ start_addr }}</div>{% endif %}
+    {% if plan.links %}<div class="maps">
+      {% for l in plan.links %}<a class="btn" href="{{ l.url }}" target="_blank" rel="noopener">📍 Open {{ l.label }} in Google Maps</a>
+      <div class="sub">{% if l.first %}Stops {{ l.first }}{% if l.last != l.first %}–{{ l.last }}{% endif %}{% endif %}{% if l.starts_home %} from home{% else %} from stop {{ l.first - 1 }}{% endif %}{% if l.ends_home %}, then home{% endif %}</div>{% endfor %}
+      {% if plan.links|length > 1 %}<div class="sub">Google Maps takes 9 stops per link. Open the next route when you finish the last stop of the one before.</div>{% endif %}
+      <button class="btn prtbtn" type="button" onclick="window.print()">🖨️ Print stop list</button>
+    </div>{% endif %}
+  </div>
+  {% for o in plan.stops %}
+  <div class="stop" id="stop-{{ o.stop_no }}">
+    <div class="no">{{ o.stop_no }}</div>
+    <div><div class="nm">{{ o.customer_name }} <span class="sub" style="display:inline;font-weight:400">#{{ o.id }}</span></div>
+      <div class="ad"><a href="https://www.google.com/maps/search/?api=1&query={{ o.address|urlencode }}" target="_blank" rel="noopener">{{ o.address }}</a></div>
+      {% if o.phone %}<div class="ph">📞 <a href="tel:{{ o.phone }}">{{ o.phone }}</a></div>{% endif %}
+      <ul>{% for i in o['items'] %}<li>{{ i.qty }} × {{ i.name }} ({{ i.unit }})</li>{% endfor %}</ul>
+      {% if o.notes %}<div class="nt">📝 {{ o.notes }}</div>{% endif %}</div>
+    <input class="ck" type="checkbox" aria-label="Delivered stop {{ o.stop_no }}" onchange="this.closest('.stop').classList.toggle('done',this.checked)">
+  </div>
+  {% else %}<div class="panel">No paid orders to deliver on {{ day_label }}.</div>{% endfor %}
+  {% if delivered %}<p class="sub noprint" style="margin-top:12px">{{ delivered|length }} order{{ '' if delivered|length==1 else 's' }} already marked delivered (not shown).</p>{% endif %}
+  <p class="sub noprint" style="margin-top:14px">Stop order from OpenStreetMap (Nominatim) and OSRM. Checkboxes are for your own tracking and aren't saved. Mark orders delivered on the Orders page.</p>
+</main>{% endblock %}
