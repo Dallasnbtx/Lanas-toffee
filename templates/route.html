@@ -14,6 +14,11 @@
 .stop .ck{width:28px;height:28px;margin:6px 0 0;accent-color:var(--ok)}.stop.done{opacity:.5}
 .prtbtn{background:#fff;color:var(--brand);border:1px solid var(--brand)}
 .print-head{display:none}
+.tbadge{display:inline-block;background:#B3261E;color:#fff;border-radius:6px;padding:1px 7px;font-size:12px;font-weight:800;letter-spacing:.05em;vertical-align:2px}
+.stop.test{border:2px dashed #B3261E}
+.tst{margin-top:18px;border:1px dashed var(--line);border-radius:14px;padding:10px 12px;background:#fff;font-size:14px}
+.tst form{display:inline-block;margin:6px 6px 0 0}.tst button{border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:10px;padding:8px 12px;font-weight:700;font-size:13px}
+.tst button.rm{color:var(--bad);border-color:var(--bad)}
 @media print{
   @page{margin:12mm}body{background:#fff}header.top,.noprint{display:none!important}.wrap{max-width:none;padding:0}
   .print-head{display:block;margin-bottom:6px}.print-head h1{font-family:Georgia,serif;font-size:20px;margin:0}
@@ -35,7 +40,10 @@
     <div style="font-weight:800;font-size:18px">{{ day_label }}</div>
     <div class="sumry"><span class="chip">{{ plan.stops|length }} stop{{ '' if plan.stops|length==1 else 's' }}</span><span class="chip">{{ n_items }} item{{ '' if n_items==1 else 's' }}</span>
       {% if plan.stops %}{% if plan.optimized %}<span class="chip ok">✓ Shortest-drive order</span>{% if plan.miles %}<span class="chip">≈ {{ plan.miles }} mi · {{ plan.minutes }} min driving</span>{% endif %}{% else %}<span class="chip warn">Order-number order</span>{% endif %}{% endif %}
+      {% if n_test %}<span class="chip warn">{{ n_test }} TEST stop{{ '' if n_test==1 else 's' }}</span>{% endif %}
       {% if mode == 'demo' %}<span class="chip">PREVIEW</span>{% endif %}</div>
+    {% if loaded is not none %}<div class="msg ok">Loaded {{ loaded }} test stops for {{ day_label }}.</div>{% endif %}
+    {% if removed is not none %}<div class="msg ok">Removed {{ removed }} test stop{{ '' if removed==1 else 's' }}.</div>{% endif %}
     {% for n in plan.notices %}<div class="msg bad">{{ n }}</div>{% endfor %}
     {% if outside %}<div class="msg bad"><b>Not on the route, outside the delivery area:</b> {% for o in outside %}#{{ o.id }} {{ o.customer_name }} ({{ o.zip }}){{ ', ' if not loop.last }}{% endfor %}. Refund or contact them.</div>{% endif %}
     {% if start_addr %}<div class="start">🏠 Start &amp; finish: {{ start_addr }}</div>{% endif %}
@@ -47,9 +55,9 @@
     </div>{% endif %}
   </div>
   {% for o in plan.stops %}
-  <div class="stop" id="stop-{{ o.stop_no }}">
+  <div class="stop{{ ' test' if o.is_test }}" id="stop-{{ o.stop_no }}">
     <div class="no">{{ o.stop_no }}</div>
-    <div><div class="nm">{{ o.customer_name }} <span class="sub" style="display:inline;font-weight:400">#{{ o.id }}</span></div>
+    <div><div class="nm">{% if o.is_test %}<span class="tbadge">TEST</span> {% endif %}{{ o.customer_name }} <span class="sub" style="display:inline;font-weight:400">#{{ o.id }}</span></div>
       <div class="ad"><a href="https://www.google.com/maps/search/?api=1&query={{ o.address|urlencode }}" target="_blank" rel="noopener">{{ o.address }}</a></div>
       {% if o.phone %}<div class="ph">📞 <a href="tel:{{ o.phone }}">{{ o.phone }}</a></div>{% endif %}
       <ul>{% for i in o['items'] %}<li>{{ i.qty }} × {{ i.name }} ({{ i.unit }})</li>{% endfor %}</ul>
@@ -58,5 +66,13 @@
   </div>
   {% else %}<div class="panel">No paid orders to deliver on {{ day_label }}.</div>{% endfor %}
   {% if delivered %}<p class="sub noprint" style="margin-top:12px">{{ delivered|length }} order{{ '' if delivered|length==1 else 's' }} already marked delivered (not shown).</p>{% endif %}
+  <div class="tst noprint" id="test-stops"><b>Test stops</b>
+    <div class="sub">Fake paid orders at public places in 78130, marked TEST. They never send alerts and never count in totals, CSV or partner pages.
+      {% if test_counts %}Loaded now: {% for iso, n in test_counts %}<a href="?date={{ iso }}">{{ iso }}</a> ({{ n }}){{ ', ' if not loop.last }}{% endfor %}.{% else %}None loaded.{% endif %}</div>
+    <form method="post" action="/admin/route/test-stops/load" onsubmit="return confirm('Load 12 TEST stops for {{ day_label }}? (Replaces any test stops already on that date.)')">
+      <input type="hidden" name="date" value="{{ day }}"><button type="submit">Load test stops for this date</button></form>
+    <form method="post" action="/admin/route/test-stops/remove" onsubmit="return confirm('Remove ALL test stops on every date? Real orders are not touched.')">
+      <input type="hidden" name="date" value="{{ day }}"><button type="submit" class="rm">Remove all test stops</button></form>
+  </div>
   <p class="sub noprint" style="margin-top:14px">Stop order from OpenStreetMap (Nominatim) and OSRM. Checkboxes are for your own tracking and aren't saved. Mark orders delivered on the Orders page.</p>
 </main>{% endblock %}

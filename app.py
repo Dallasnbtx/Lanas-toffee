@@ -4,7 +4,8 @@ from functools import wraps
 from zoneinfo import ZoneInfo
 from flask import (Flask, render_template, request, jsonify, redirect, url_for,
                    abort, Response, g)
-import notify, delivery, labeling, route
+import notify, delivery, labeling, route, route_test_stops
+from urllib.parse import urlsplit
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 BASE_DIR0 = os.path.dirname(os.path.abspath(__file__))
@@ -88,7 +89,8 @@ def init_db():
         delivery_date TEXT, in_area INTEGER DEFAULT 1)""")
     cols = {r[1] for r in c.execute("PRAGMA table_info(orders)")}
     for col, typ in [("delivery_date_iso", "TEXT"), ("subtotal_cents", "INTEGER"), ("tax_cents", "INTEGER"),
-                     ("refunded_cents", "INTEGER DEFAULT 0"), ("payment_intent", "TEXT")]:
+                     ("refunded_cents", "INTEGER DEFAULT 0"), ("payment_intent", "TEXT"),
+                     ("is_test", "INTEGER DEFAULT 0")]:  # is_test: admin route test stops
         if col not in cols:  # migration for older DBs
             c.execute(f"ALTER TABLE orders ADD COLUMN {col} {typ}")
     c.execute("""CREATE TABLE IF NOT EXISTS partner_payouts (
@@ -120,7 +122,8 @@ def save_order(**o):
         d.commit()
         oid = cur.lastrowid
     order = row_to_order(db().execute("SELECT * FROM orders WHERE id=?", (oid,)).fetchone())
-    notify.send_alert(order)
+    if not order.get("is_test"):  # test stops never email
+        notify.send_alert(order)
     return oid, True
 
 
@@ -228,7 +231,7 @@ PARTNER_COLS = "id, created_at, src, subtotal_cents, total_cents, refunded_cents
 
 def partner_orders(prefix, pct):
     """Paid orders for a partner, reduced to non-PII fields only."""
-    rows = db().execute(f"SELECT {PARTNER_COLS} FROM orders WHERE payment_status='paid' ORDER BY created_at DESC, id DESC").fetchall()
+    rows = db().execute(f"SELECT {PARTNER_COLS} FROM orders WHERE payment_status='paid' AND COALESCE(is_test,0)=0 ORDER BY created_at DESC, id DESC").fetchall()
     out = []
     for r in rows:
         o = dict(r)
@@ -307,7 +310,7 @@ def by_partner_rollup(rows, partners=None):
         return out
     for o in rows:
         src = o.get("src") or ""
-        if not src:
+        if not src or o.get("is_test"):
             continue
         p = next((p for p in partners.values() if src_matches(src, p["prefix"])), None)
         if p:
@@ -510,13 +513,13 @@ def order_for_payment_intent(pi):
     """Find our order for a PaymentIntent; backfill orders recorded before payment_intent was stored."""
     if not pi:
         return None
-    r = db().execute("SELECT id, total_cents, status FROM orders WHERE payment_intent=?", (pi,)).fetchone()
+    r = db().execute("SELECT id, total_cents, status FROM orders WHERE payment_intent=? AND COALESCE(is_test,0)=0", (pi,)).fetchone()
     if r:
         return r
     lst = _obj(stripe.checkout.Session.list(payment_intent=pi, limit=1))
     for sess in lst.get("data") or []:
         sid = _obj(sess).get("id")
-        r = db().execute("SELECT id, total_cents, status FROM orders WHERE stripe_session_id=?", (sid,)).fetchone()
+        r = db().execute("SELECT id, total_cents, status FROM orders WHERE stripe_session_id=? AND COALESCE(is_test,0)=0", (sid,)).fetchone()
         if r:
             db().execute("UPDATE orders SET payment_intent=? WHERE id=?", (pi, r["id"]))
             db().commit()
@@ -560,7 +563,7 @@ def success():
     cfg = load_config()
     order = None
     if request.args.get("order"):
-        r = db().execute("SELECT * FROM orders WHERE id=? AND mode='demo'", (request.args["order"],)).fetchone()
+        r = db().execute("SELECT * FROM orders WHERE id=? AND mode='demo' AND COALESCE(is_test,0)=0", (request.args["order"],)).fetchone()
         order = row_to_order(r) if r else None
     elif request.args.get("session_id") and MODE == "stripe":
         sid = request.args["session_id"]
@@ -590,19 +593,20 @@ def require_admin(fn):
 @require_admin
 def admin():
     rows = [row_to_order(r) for r in db().execute("SELECT * FROM orders ORDER BY id DESC").fetchall()]
+    real = [o for o in rows if not o.get("is_test")]  # test stops: listed with a TEST badge, never counted
     by_day = {}
-    for o in rows:
+    for o in real:
         if o["status"] not in ("delivered", "cancelled", "refunded"):
             by_day.setdefault((o.get("delivery_date_iso") or "", o["delivery_date"]), []).append(o["id"])
     by_src = {}
-    for o in rows:
+    for o in real:
         k = o["src"] or "(none)"
         by_src.setdefault(k, [0, 0])
         by_src[k][0] += 1
         by_src[k][1] += o["total_cents"] or 0
     return render_template("admin.html", cfg=load_config(), orders=rows, statuses=STATUSES, mode=MODE,
-                           by_src=by_src, by_day=sorted(by_day.items()), by_partner=by_partner_rollup(rows),
-                           partners_on=bool(load_partners()))
+                           by_src=by_src, by_day=sorted(by_day.items()), by_partner=by_partner_rollup(real),
+                           partners_on=bool(load_partners()), test_counts=sorted(route_test_stops.counts(db()).items()))
 
 
 @app.route("/admin/route")
@@ -629,7 +633,49 @@ def admin_route():
                            start_addr=start_addr, outside=outside, delivered=delivered, mode=MODE,
                            prev_day=(d - datetime.timedelta(days=1)).isoformat(),
                            next_day=(d + datetime.timedelta(days=1)).isoformat(),
-                           n_items=sum(i["qty"] for o in p["stops"] for i in o["items"]))
+                           n_items=sum(i["qty"] for o in p["stops"] for i in o["items"]),
+                           n_test=sum(1 for o in p["stops"] if o.get("is_test")),
+                           test_counts=sorted(route_test_stops.counts(db()).items()),
+                           loaded=request.args.get("loaded", type=int), removed=request.args.get("removed", type=int))
+
+
+def same_origin():
+    """Basic-auth browsers resend credentials on cross-site POSTs, so state-changing admin POSTs must come from
+    our own pages: Origin (or, failing that, Referer) must match this host."""
+    src = request.headers.get("Origin") or request.headers.get("Referer") or ""
+    u = urlsplit(src)
+    return bool(u.netloc) and u.netloc == request.host and u.scheme == request.scheme
+
+
+@app.post("/admin/route/test-stops/load")
+@require_admin
+def admin_test_stops_load():
+    """Load ~12 fake paid TEST orders at public 78130 places for any picked date (replaces that date's set)."""
+    if not same_origin():
+        abort(403)
+    try:
+        day = datetime.date.fromisoformat(request.form.get("date", ""))
+    except ValueError:
+        abort(400)
+    cfg = load_config()
+    n = route_test_stops.load(db(), day, lambda raw: build_items(raw), lambda sub: labeling.compute_tax(cfg, sub),
+                              delivery.pretty, datetime.datetime.now(TZ))
+    return redirect(url_for("admin_route", date=day.isoformat(), loaded=n))
+
+
+@app.post("/admin/route/test-stops/remove")
+@require_admin
+def admin_test_stops_remove():
+    """Delete every test stop (is_test=1 AND src='test-route'); real orders are never touched."""
+    if not same_origin():
+        abort(403)
+    n = route_test_stops.remove_all(db())
+    day = request.form.get("date", "")
+    try:
+        day = datetime.date.fromisoformat(day).isoformat()
+    except ValueError:
+        day = None
+    return redirect(url_for("admin_route", date=day, removed=n) if day else url_for("admin_route", removed=n))
 
 
 @app.post("/admin/orders/<int:oid>/refunded")
@@ -637,8 +683,8 @@ def admin_route():
 def admin_refunded(oid):
     """Mark an order fully refunded (after refunding in Stripe) or clear the flag. Drives partner commissions."""
     d = db()
-    r = d.execute("SELECT total_cents FROM orders WHERE id=?", (oid,)).fetchone()
-    if not r:
+    r = d.execute("SELECT total_cents FROM orders WHERE id=? AND COALESCE(is_test,0)=0", (oid,)).fetchone()
+    if not r:  # missing, or a test stop (no refunds on test rows)
         abort(404)
     d.execute("UPDATE orders SET refunded_cents=? WHERE id=?", (r["total_cents"] if request.form.get("on") == "1" else 0, oid))
     d.commit()
@@ -659,7 +705,7 @@ def admin_status(oid):
 @app.route("/admin/orders.csv")
 @require_admin
 def admin_csv():
-    rows = [row_to_order(r) for r in db().execute("SELECT * FROM orders ORDER BY id").fetchall()]
+    rows = [row_to_order(r) for r in db().execute("SELECT * FROM orders WHERE COALESCE(is_test,0)=0 ORDER BY id").fetchall()]
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["id", "created_at", "status", "payment_status", "mode", "name", "phone", "email", "address",

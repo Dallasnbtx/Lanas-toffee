@@ -174,5 +174,6 @@ def default_day(conn, cfg, now, next_delivery):
     today = now.date().isoformat()
     r = conn.execute("""SELECT MIN(delivery_date_iso) FROM orders WHERE delivery_date_iso >= ? AND payment_status='paid'
                         AND status NOT IN ('delivered','cancelled','refunded')
-                        AND (COALESCE(refunded_cents,0)=0 OR refunded_cents < total_cents)""", (today,)).fetchone()
+                        AND (COALESCE(refunded_cents,0)=0 OR refunded_cents < total_cents)
+                        AND COALESCE(is_test,0)=0""", (today,)).fetchone()
     return (r[0] if r and r[0] else None) or next_delivery.isoformat()
